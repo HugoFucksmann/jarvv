@@ -14,7 +14,6 @@ import type { ExecutableRoute } from "../types/routes.ts";
 import { currentBlacklist } from "./callAuthorize.ts";
 import { fromFailure } from "./callRecord.ts";
 import type { EngineEnv } from "./env.ts";
-import { routeExhausted } from "./limits.ts";
 import type { CallOutcome } from "./outcomes.ts";
 
 export type Discovery =
@@ -34,15 +33,7 @@ function usableTools(mcp: string, cataloged: readonly MCPTool[], blacklist: Blac
  * se puede consultar NO se descarta: el fallo aparece al ejecutar y cierra la tarea como infraestructura caída. Una cuyo servidor respondió
  * sin herramientas (una herramienta que no existe en esta plataforma) sí se descarta.
  */
-export async function availableRoutes(env: EngineEnv, stepId: string, routes: readonly ExecutableRoute[]): Promise<ExecutableRoute[]> {
-  const out = await routesWithTools(env, routes);
-  // Una ruta cuyo resultado Decisión 4 rechazó `maxNotAccomplishedPerRoute` veces como "no cumple lo pedido" en este paso se deja de ofrecer: cambiar los
-  // argumentos de la misma herramienta no resuelve lo que esa ruta no puede dar (p. ej. un listado sin tamaños no los trae). Si no quedara ninguna ruta, se ofrecen todas.
-  const remaining = out.filter((route) => !routeExhausted(env.ctx, stepId, route));
-  return remaining.length > 0 ? remaining : out;
-}
-
-async function routesWithTools(env: EngineEnv, routes: readonly ExecutableRoute[]): Promise<ExecutableRoute[]> {
+export async function availableRoutes(env: EngineEnv, routes: readonly ExecutableRoute[]): Promise<ExecutableRoute[]> {
   const { deps } = env;
   // En paralelo: si el servidor todavía está arrancando (lo normal en la primera tarea tras encender Jarvis), esperar a cada ruta una tras otra
   // sumaría los arranques de los dos servidores en vez de esperar al más lento. El orden de las rutas se conserva.

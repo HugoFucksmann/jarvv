@@ -35,7 +35,7 @@ export const LOG_SCHEMA_VERSION = 1 as const;
 /** Nombre de archivo de log perteneciente a Jarvis: `<taskId>.jsonl`. */
 export const LOG_FILE = /^task_\d+_[A-Za-z0-9]+\.jsonl$/;
 
-export interface LogHeader {
+interface LogHeader {
   readonly v: number;
   readonly id: string;
   readonly mode: TaskMode;
@@ -44,14 +44,14 @@ export interface LogHeader {
   readonly limits: ContextLimits;
 }
 
-export interface LogEntry {
+interface LogEntry {
   readonly n: number;
   readonly at: number;
   readonly ops: readonly Op[];
   readonly meta: ChangeMeta | null;
 }
 
-export type LogReadResult =
+type LogReadResult =
   | {
       readonly ok: true;
       readonly id: string;
@@ -85,7 +85,7 @@ export function taskLogPath(tasksDir: string, taskId: string): string {
 }
 
 /** Escribe de forma síncrona y atómica la cabecera al iniciar una tarea. */
-export function writeLogHeaderSync(filePath: string, header: LogHeader): void {
+function writeLogHeaderSync(filePath: string, header: LogHeader): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const line = `${JSON.stringify(header)}\n`;
   fs.writeFileSync(filePath, line, { encoding: "utf8", flag: "wx" });
@@ -206,7 +206,7 @@ function parseEntry(raw: unknown): LogEntry | null {
  * Conversión de versiones viejas de esquema del log al vigente (`LOG_SCHEMA_VERSION`).
  * Las versiones desconocidas o futuras devuelven `null` para que el log se marque como ilegible.
  */
-export function convertLogSchema(
+function convertLogSchema(
   header: LogHeader,
   entries: readonly LogEntry[],
 ): { readonly header: LogHeader; readonly entries: readonly LogEntry[] } | null {
@@ -355,7 +355,7 @@ export function isTaskLogTerminal(filePath: string): boolean {
 }
 
 /** Datos de un log de tarea ya cerrada y con respuesta, leídos sin reproducirlo. */
-export interface ClosedTaskLogSummary {
+interface ClosedTaskLogSummary {
   readonly id: string;
   readonly mode: TaskMode;
   readonly request: string;
@@ -408,7 +408,7 @@ export function summarizeClosedTaskLog(filePath: string): ClosedTaskLogSummary |
   }
 }
 
-export interface TaskLogFileInfo {
+interface TaskLogFileInfo {
   readonly taskId: string;
   readonly filePath: string;
 }

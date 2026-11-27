@@ -84,7 +84,6 @@ export const TraceViewerModal: React.FC<TraceViewerModalProps> = ({
   useEffect(() => {
     if (format === "queries") return;
     // Ya cargado: no hace falta volver a pedirlo.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     if (traces[key] !== undefined) return;
 
     let isMounted = true;
@@ -108,7 +107,6 @@ export const TraceViewerModal: React.FC<TraceViewerModalProps> = ({
     return () => {
       isMounted = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taskId, format, attempt]);
 
   // Escape para cerrar

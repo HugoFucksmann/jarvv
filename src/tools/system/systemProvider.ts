@@ -9,7 +9,7 @@
 import { getUserEnvironment, type UserEnvironment } from "../../core/environment.ts";
 import { effectiveTimeoutMs } from "../../core/tools/filePaths.ts";
 import type { ToolCallOptions, ToolProvider } from "../../core/tools/provider.ts";
-import { toolResult } from "../../core/tools/result.ts";
+import { toolFail as fail } from "../../core/tools/result.ts";
 import type { MCPCallResult, MCPTool } from "../../core/types.ts";
 import { DEFAULT_CLIPBOARD_TIMEOUT_MS, runClipboard, type ClipboardDriver } from "./clipboard.ts";
 import { DEFAULT_OPEN_TIMEOUT_MS, runOpenOnScreen, type ScreenOpener } from "./openOnScreen.ts";
@@ -35,13 +35,13 @@ import {
   type SystemReader,
 } from "./systemInfo.ts";
 
-export const SYSTEM_SERVER = "jarvis_system";
-export const SYSTEM_INFO = "system_info";
-export const STOP_PROCESS = "stop_process";
-export const PC_SETTINGS_TOOL_NAME = "pc_settings";
-export const POWER_TOOL_NAME = "power";
-export const OPEN_ON_SCREEN = "open_on_screen";
-export const CLIPBOARD = "clipboard";
+const SYSTEM_SERVER = "jarvis_system";
+const SYSTEM_INFO = "system_info";
+const STOP_PROCESS = "stop_process";
+const PC_SETTINGS_TOOL_NAME = "pc_settings";
+const POWER_TOOL_NAME = "power";
+const OPEN_ON_SCREEN = "open_on_screen";
+const CLIPBOARD = "clipboard";
 
 export type { ClipboardDriver } from "./clipboard.ts";
 export type { OpenTargetType, ResolvedOpenKind, ScreenOpener } from "./openOnScreen.ts";
@@ -203,10 +203,7 @@ const TOOLS: readonly MCPTool[] = [
   CLIPBOARD_TOOL,
 ];
 
-const fail = (message: string): MCPCallResult =>
-  toolResult({ text: message, raw: message, data: { state: "error", truncated: false }, isError: true });
-
-export interface SystemProviderOptions {
+interface SystemProviderOptions {
   readonly allowedDirectories?: () => readonly string[];
   readonly environment?: () => Promise<UserEnvironment>;
   readonly platform?: NodeJS.Platform;

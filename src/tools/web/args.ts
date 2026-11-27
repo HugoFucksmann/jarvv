@@ -4,7 +4,7 @@
  */
 
 export const FRESHNESS = ["day", "week", "month", "year"] as const;
-export type Freshness = (typeof FRESHNESS)[number];
+type Freshness = (typeof FRESHNESS)[number];
 
 export const MAX_NEED_CHARS = 300;
 export const MAX_URLS = 5;
@@ -18,7 +18,7 @@ export interface WebArgs {
   readonly domains: readonly string[];
 }
 
-export type ArgsResult = { readonly ok: true; readonly args: WebArgs } | { readonly ok: false; readonly message: string };
+type ArgsResult = { readonly ok: true; readonly args: WebArgs } | { readonly ok: false; readonly message: string };
 
 const fail = (message: string): ArgsResult => ({ ok: false, message });
 

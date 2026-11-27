@@ -13,7 +13,7 @@ import path from "node:path";
 import type { VerifyCheckKey } from "../contracts.ts";
 import type { DiskView } from "../types/disk.ts";
 
-export type Postcondition = "met" | "unmet" | null;
+type Postcondition = "met" | "unmet" | null;
 
 /** Cómo mira el disco: inyectable para las pruebas (definido en `types/disk.ts`). */
 export type { DiskView };
@@ -22,6 +22,28 @@ export const REAL_DISK: DiskView = {
   exists: (p) => fs.existsSync(p),
   isDirectory: (p) => fs.statSync(p).isDirectory(),
   size: (p) => fs.statSync(p).size,
+  readText: (p, maxBytes) => {
+    try {
+      const fd = fs.openSync(p, "r");
+      try {
+        const buffer = Buffer.alloc(maxBytes);
+        const read = fs.readSync(fd, buffer, 0, maxBytes, 0);
+        const chunk = buffer.subarray(0, read);
+        return chunk.includes(0) ? null : chunk.toString("utf8");
+      } finally {
+        fs.closeSync(fd);
+      }
+    } catch {
+      return null;
+    }
+  },
+  list: (p, max) => {
+    try {
+      return fs.readdirSync(p).slice(0, max);
+    } catch {
+      return null;
+    }
+  },
 };
 
 /** El valor es una ruta absoluta, sin marcadores `{{…}}` sin resolver. */
@@ -86,7 +108,8 @@ const POSTCONDITIONS: ReadonlyMap<string, PostconditionRule> = new Map<string, P
         const destination = absolutePath((item as Record<string, unknown>).destination);
         if (source === null || destination === null) return null;
         // Mover deja el destino y quita el origen (renombrar en el mismo lugar es un caso: el origen ya no existe con ese nombre).
-        if (disk.exists(source) && source.toLowerCase() !== destination.toLowerCase()) return "unmet";
+        const sameName = process.platform === "win32" ? source.toLowerCase() === destination.toLowerCase() : source === destination;
+        if (disk.exists(source) && !sameName) return "unmet";
         if (!disk.exists(destination)) return "unmet";
       }
       return "met";

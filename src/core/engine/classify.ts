@@ -18,12 +18,12 @@ import { CONTINUATION_APPROVE } from "./thread.ts";
 /** Una respuesta inválida o un desborde de estas consultas (atajos) no es un modelo caído: la tarea sigue sin su aporte. Un modelo no disponible (agotada la pausa) o una cancelación sí cierran. */
 const degradesToDefault = (failure: ModelFailureKind): boolean => failure === "invalid" || failure === "overflow";
 
-export type ClassifyOutcome =
+type ClassifyOutcome =
   | { readonly kind: "classified"; readonly first: FirstQueryKind | null }
   | { readonly kind: "close"; readonly stopReason: "unrecoverable" }
   | { readonly kind: "cancelled" };
 
-export type ContinuationOutcome =
+type ContinuationOutcome =
   | { readonly kind: "resolved"; readonly previous: PreviousTask | null }
   | { readonly kind: "close"; readonly stopReason: "unrecoverable" }
   | { readonly kind: "cancelled" };

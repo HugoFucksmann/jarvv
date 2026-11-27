@@ -67,7 +67,7 @@ export function toolBudgetMessage(text: string): string | undefined {
   return clean.length > BUDGET_DETAIL_MAX ? `${clean.slice(0, BUDGET_DETAIL_MAX).trimEnd()}…` : clean;
 }
 
-export interface DeadlineOptions {
+interface DeadlineOptions {
   /** Cancelación de la tarea (no es el plazo): si se activa, la llamada se abandona con el motivo de la señal. */
   readonly signal?: AbortSignal;
   /** Instante (ms desde la época) en que vence la búsqueda. */

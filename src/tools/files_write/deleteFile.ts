@@ -15,7 +15,7 @@ import fs from "node:fs";
 import { promisify } from "node:util";
 import type { UserEnvironment } from "../../core/environment.ts";
 import { effectiveTimeoutMs, isProtectedUserOrSystemRoot, resolveExistingPath, pathFailureData } from "../../core/tools/filePaths.ts";
-import { cancelledResult, toolResult } from "../../core/tools/result.ts";
+import { cancelledResult, toolResult, toolFail as fail } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
 
@@ -29,16 +29,13 @@ export type TrashHandler = (params: {
   readonly signal?: AbortSignal;
 }) => Promise<void>;
 
-export interface DeleteFileDeps {
+interface DeleteFileDeps {
   readonly getAllowedDirectories: () => readonly string[];
   readonly getEnvironment: () => Promise<UserEnvironment>;
   readonly platform?: NodeJS.Platform;
   readonly trashHandler?: TrashHandler;
   readonly defaultTimeoutMs?: number;
 }
-
-const fail = (message: string, data: Record<string, unknown> = {}): MCPCallResult =>
-  toolResult({ text: message, raw: message, data: { state: "error", truncated: false, ...data }, isError: true });
 
 const PS_SEND_TO_TRASH_SCRIPT = [
   "Add-Type -AssemblyName Microsoft.VisualBasic",
@@ -52,7 +49,7 @@ const PS_SEND_TO_TRASH_SCRIPT = [
   "}",
 ].join("; ");
 
-export function createDefaultTrashHandler(
+function createDefaultTrashHandler(
   platform: NodeJS.Platform = process.platform,
   timeoutMs = DEFAULT_DELETE_TIMEOUT_MS,
 ): TrashHandler {

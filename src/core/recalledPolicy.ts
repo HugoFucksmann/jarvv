@@ -8,10 +8,10 @@
 import { BUDGET } from "./budget.ts";
 import type { RecalledFilterOptions, RecalledSource } from "./ctx/index.ts";
 
-export type RecalledTrust = "user" | "assistant_history";
-export type RecalledViewConsumer = "forArgs" | "forFinal" | "forPlan" | "forPending";
+type RecalledTrust = "user" | "assistant_history";
+type RecalledViewConsumer = "forArgs" | "forFinal" | "forPlan" | "forPending";
 
-export interface RecalledSourcePolicy {
+interface RecalledSourcePolicy {
   readonly trust: RecalledTrust;
   readonly views: readonly RecalledViewConsumer[];
   readonly maxPerPrompt: number;

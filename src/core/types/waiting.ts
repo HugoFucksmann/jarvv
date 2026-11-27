@@ -11,7 +11,7 @@ import type { ApprovalTier } from "../policy/tiers.ts";
 import type { Capability } from "../types.ts";
 
 /** Regla de la lista negra asociada a una solicitud de aprobación. */
-export interface ApprovalBlacklist {
+interface ApprovalBlacklist {
   readonly id: string;
   readonly level: ListLevel;
 }
@@ -40,7 +40,7 @@ export type ApprovalOutcome =
   | { readonly kind: "cancelled" };
 
 /** Paso del plan propuesto, tal como lo ve el usuario al confirmarlo. */
-export interface PlanStepInfo {
+interface PlanStepInfo {
   readonly id: string;
   readonly instruction: string;
   readonly route: string;

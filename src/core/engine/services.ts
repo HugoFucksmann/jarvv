@@ -47,7 +47,7 @@ export function memoryFileOf(config: Pick<JarvisConfig, "refsDir">): string {
 }
 
 /** Opciones que decide la raíz de composición. */
-export interface EngineServicesOptions {
+interface EngineServicesOptions {
   /** Proveedor de memoria de hechos (`createJsonMemoryProvider(memoryFileOf(config))` en `server.tsx`). Omitido = sin memoria. */
   readonly memoryProvider?: MemoryProvider;
 }

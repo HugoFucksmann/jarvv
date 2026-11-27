@@ -63,6 +63,19 @@ export function sameItem(a: string, b: string): boolean {
   return shared / Math.min(sa.size, sb.size) >= 0.6;
 }
 
+/** La lista sin los ítems cuyo texto normalizado ya aparece antes (solo lo literalmente repetido; `reconcileList` quita además lo que se parece). */
+export function exactlyDistinct(items: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of items) {
+    const key = itemKey(item);
+    if (key === "" || seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
 /**
  * La lista que sigue tras una consulta al modelo: `modelList` sin lo ya cumplido (`settled`) ni duplicados seguidos, más los ítems que
  * venían después del primero de `previous` y la lista nueva no cubre.

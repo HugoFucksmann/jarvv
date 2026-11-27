@@ -3,7 +3,7 @@
  * `json` trae las consultas ya interpretadas; `full` suma la entrada y la salida crudas de cada una (se unen por `seq`).
  */
 
-export interface TraceLink {
+interface TraceLink {
   call: string | null;
   plan: string | null;
   fact: string | null;

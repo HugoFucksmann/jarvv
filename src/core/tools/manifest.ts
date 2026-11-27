@@ -37,7 +37,7 @@ import {
 } from "../types.ts";
 import { isRerunnableCommand } from "../policy/rerun.ts";
 
-export interface ToolDefinition {
+interface ToolDefinition {
   readonly name: string;
   readonly route: ExecutableRoute;
   readonly server: McpServerName;
@@ -85,11 +85,11 @@ export const DESTINATIONS: Readonly<
   },
   terminal: {
     server: "jarvis_terminal",
-    description: "Run commands and programs, read their output and send them input while they run.",
+    description: "Run PowerShell commands for custom queries: virus and malware checks, process start times, filtered or detailed lists, scripts and programs.",
   },
   system: {
     server: "jarvis_system",
-    description: "Check the state of the PC (hardware, operating system, disks, services, network, processes, ports, date and time), stop processes, change PC settings, lock, sleep, restart or shut down the PC, open an application, a URL or a folder on the screen, and use the clipboard.",
+    description: "Quick PC reports (hardware, OS, disks, services, network, processes, ports, time) and PC actions: stop a process, settings, power, open an app or URL, clipboard.",
   },
   multimedia: {
     server: "jarvis_multimedia",
@@ -300,7 +300,7 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
   }),
 
   // ── Grupo `system` (proveedor nativo `jarvis_system`): estado de la PC, procesos, ajustes, energía, abrir en pantalla y portapapeles. `list_processes` pasó a ser la sección `processes` de `system_info`. ──
-  def("system", "system_info", "READ", "Inspect hardware, OS, disks, network, processes, ports, date and time.", {
+  def("system", "system_info", "READ", "PC report: hardware, OS, disks, network, processes, ports. No malware scans.", {
     repeat: "retry_failed",
     params: ["section", "status", "sortBy", "protocol", "nameFilter", "limit"],
     notes: {
@@ -384,11 +384,11 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
   // Repetición: un comando nuevo es `strict` (repetir una escritura idéntica pudo duplicar sus efectos), salvo uno de comprobación o compilación que
   // `policy/rerun.ts` reconoce (`npm test`, `dotnet build`…): `rerun`, que se puede repetir tras un cambio intermedio (RC-21). Una continuación por `pid` es
   // `allow`, porque esperar más salida repite los mismos argumentos (los topes del paso, `maxCallsPerStep`, acotan las vueltas).
-  def("terminal", "run_command", "PROCESS_CONTROL", "Run a PowerShell command, or continue one that is still running.", {
+  def("terminal", "run_command", "PROCESS_CONTROL", "Run any PowerShell command, or continue one that is still running.", {
     repeatByArgs: (args) => (typeof args.pid === "number" ? "allow" : typeof args.command === "string" && isRerunnableCommand(args.command) ? "rerun" : "strict"),
     params: ["command", "pid", "input", "timeoutSec", "cwd"],
     notes: {
-      command: "PowerShell command to run. Omit it when continuing a process (use pid).",
+      command: "PowerShell command to run, e.g. Get-MpComputerStatus for antivirus status. Omit it when continuing a process (use pid).",
       pid: "Process id from an earlier run_command that is still running or waiting for input.",
       input: "Answer for a process that was waiting for input; only with pid.",
       timeoutSec: "Seconds to wait for the result (default 30, max 300). The process is not killed when it expires.",

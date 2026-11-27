@@ -48,7 +48,7 @@ export function needsShell(
   return false;
 }
 
-export class MCPTransportError extends Error {
+class MCPTransportError extends Error {
   constructor(public readonly serverName: string, message: string, public readonly cause?: unknown) {
     super(`[MCP Server '${serverName}' Transport Error] ${message}`);
     this.name = "MCPTransportError";

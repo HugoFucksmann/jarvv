@@ -15,7 +15,7 @@ import type { UserEnvironment } from "../../core/environment.ts";
 import { omissionMarker } from "../../core/text.ts";
 import { effectiveTimeoutMs, fitLinesToBudget, isBinaryFile, resolveExistingPath } from "../../core/tools/filePaths.ts";
 import { matchName, parsePattern, type PatternMatcher } from "../../core/tools/globPattern.ts";
-import { toolResult } from "../../core/tools/result.ts";
+import { toolResult, toolFail as fail } from "../../core/tools/result.ts";
 import { walkFolder } from "../../core/tools/walkFolder.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
@@ -27,10 +27,10 @@ export const DEFAULT_SEARCH_MAX_FILE_BYTES = 2 * 1024 * 1024;
 export const DEFAULT_SEARCH_MAX_RESULTS = 50;
 export const MAX_SEARCH_RESULTS = 200;
 export const DEFAULT_MAX_MATCHES_PER_FILE = 10;
-export const MAX_LINE_SNIPPET_CHARS = 220;
+const MAX_LINE_SNIPPET_CHARS = 220;
 
 
-export interface SearchContentDeps {
+interface SearchContentDeps {
   readonly getAllowedDirectories: () => readonly string[];
   readonly getEnvironment: () => Promise<UserEnvironment>;
   readonly now: () => number;
@@ -59,9 +59,6 @@ interface ContentMatch {
 
 type StoppedBy = "time" | "files" | "depth" | "limit";
 type SearchState = "found" | "partial" | "no_results" | "incomplete" | "cancelled";
-
-const fail = (message: string, data: Record<string, unknown> = {}): MCPCallResult =>
-  toolResult({ text: message, raw: message, data: { state: "error", truncated: false, ...data }, isError: true });
 
 const cancelledResult = (scannedFiles = 0, skipped = 0): MCPCallResult =>
   toolResult({
@@ -141,6 +138,9 @@ function parseArgs(
   };
 }
 
+const MAX_REGEX_CHARS = 300;
+const MAX_REGEX_LINE_CHARS = 5_000;
+
 function buildLineMatcher(query: string, regex: boolean, caseSensitive: boolean):
   | { readonly ok: true; readonly matches: (line: string) => boolean }
   | { readonly ok: false; readonly message: string } {
@@ -151,9 +151,14 @@ function buildLineMatcher(query: string, regex: boolean, caseSensitive: boolean)
       matches: (line) => (caseSensitive ? line.includes(needle) : line.toLowerCase().includes(needle)),
     };
   }
+  // Sin hilo aparte no se puede cortar una regex a mitad: se rechazan los patrones largos o con cuantificadores anidados (`(a+)+`, `(.*)*`), el origen del backtracking catastrófico, y se acota el texto de cada línea.
+  if (query.length > MAX_REGEX_CHARS) return { ok: false, message: `The regular expression in 'query' is too long (max ${MAX_REGEX_CHARS} characters).` };
+  if (/\((?:[^()\\]|\\.)*[+*}](?:[^()\\]|\\.)*\)\s*(?:[+*]|\{\d+,\d*\})/.test(query)) {
+    return { ok: false, message: "The regular expression in 'query' has nested quantifiers (e.g. '(a+)+'), which can hang the search. Simplify it." };
+  }
   try {
     const re = new RegExp(query, caseSensitive ? "" : "i");
-    return { ok: true, matches: (line) => re.test(line) };
+    return { ok: true, matches: (line) => re.test(line.length > MAX_REGEX_LINE_CHARS ? line.slice(0, MAX_REGEX_LINE_CHARS) : line) };
   } catch (error) {
     return { ok: false, message: `Invalid regular expression in 'query': ${errorMessage(error)}` };
   }

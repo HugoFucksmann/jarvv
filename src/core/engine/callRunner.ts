@@ -33,7 +33,7 @@ import { CANCELLED, recordCall, registered, summaryText } from "./callRecord.ts"
 import type { EngineEnv } from "./env.ts";
 import type { CallOutcome } from "./outcomes.ts";
 
-export interface RunCallParams {
+interface RunCallParams {
   readonly stepId: string;
   /** Destino de la llamada: en reactivo lo elige Decision #1; en deliberativo viene del plan. */
   readonly route: ExecutableRoute;

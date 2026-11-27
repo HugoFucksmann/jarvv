@@ -66,7 +66,7 @@ export { JUDGE_BATCH, parseAnswersObject, validateAnswer } from "../../src/core/
 export { DECISION_PROMPTS, PROMPTS, retryNote } from "../../src/core/models/prompts.ts";
 export { parseJsonObject, parsePendingList, stripThink } from "../../src/core/models/qwen.ts";
 export {
-  argsTemperature,
+  escalatedTemperature,
   argumentsStageRequest,
   BASE_TEMPERATURE,
   finalStageRequest,

@@ -20,7 +20,7 @@ import { canonicalPath, isAnyAbsolute, isPathInsideCanonical, stripExtendedPrefi
 
 export type ApprovalTier = "green" | "yellow" | "red";
 
-export interface TierDisk {
+interface TierDisk {
   exists(p: string): boolean;
   canonical?(p: string): string;
 }

@@ -225,3 +225,46 @@ test("el reintento idéntico también vale cuando el modelo vuelve a listar un �
   assert.equal(list.applyModelList(["Crear la carpeta docs", "Escribir el archivo notas.md"], false), "identical_retry");
   assert.deepEqual(list.pending, ["Escribir el archivo notas.md"]);
 });
+
+test("la primera lista conserva ítems distintos que comparten el lugar (trazas de Mendoza y Buenos Aires: se perdían pasajes y lugares)", () => {
+  const first = [
+    "Recopilar información de hospedaje en Buenos Aires",
+    "Recopilar información de pasajes aéreos o terrestres hacia Buenos Aires",
+    "Recopilar información de lugares turísticos para recorrer en Buenos Aires",
+    "Crear archivo markdown en la carpeta jarvis del escritorio con la información recopilada",
+  ];
+  const list = new ReactiveList();
+  list.applyModelList(first, false);
+  assert.deepEqual(list.pending, first);
+  const repeated = new ReactiveList();
+  repeated.applyModelList(["Buscar A", "buscar a.", "Buscar B"], false);
+  assert.deepEqual(repeated.pending, ["Buscar A", "Buscar B"], "lo literalmente repetido sí se quita");
+});
+
+test("diferir el ítem fallido: los independientes siguen, el fallido va detrás de ellos y los que lo necesitan, detrás de él; una sola vez por ítem", () => {
+  const list = new ReactiveList();
+  list.applyModelList(["Crear el archivo", "Buscar vuelos", "Buscar hoteles", "Guardar los vuelos en el archivo"], false);
+  list.failHead("denied");
+  assert.equal(list.failedItem, "Crear el archivo");
+  assert.deepEqual(list.laterItems, ["Buscar vuelos", "Buscar hoteles", "Guardar los vuelos en el archivo"]);
+  assert.equal(list.canDefer, true);
+  assert.equal(list.deferFailed([false, false, true]), true);
+  assert.deepEqual(list.pending, ["Buscar vuelos", "Buscar hoteles", "Crear el archivo", "Guardar los vuelos en el archivo"]);
+  assert.equal(list.failedItem, null);
+
+  list.completeHead();
+  list.completeHead();
+  list.failHead("denied");
+  assert.equal(list.canDefer, false, "ya se difirió: un segundo fallo no se vuelve a diferir");
+  assert.equal(list.deferFailed([true]), false);
+});
+
+test("diferir el ítem fallido: no hay con qué seguir si todos dependen de él, o si el veredicto no corresponde a los ítems", () => {
+  const list = new ReactiveList();
+  list.applyModelList(["A", "B", "C"], false);
+  list.failHead(null);
+  assert.equal(list.deferFailed([true, true]), false, "todos dependen");
+  assert.equal(list.deferFailed([false]), false, "veredicto de otro largo");
+  assert.deepEqual(list.pending, ["A", "B", "C"], "la lista no cambia");
+  assert.equal(list.canDefer, true, "el intento fallido no gasta el diferido");
+});

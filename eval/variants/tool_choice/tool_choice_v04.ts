@@ -11,7 +11,7 @@
 
 import type { ToolDecisionInput } from "../../../src/core/contracts.ts";
 import type { DecisionInput } from "../../../src/core/models/prompts.ts";
-import { DECISION_PROMPTS } from "../../../src/core/models/prompts.ts";
+import { DECISION_PROMPTS, lastFailedBy, shortDesc } from "../../../src/core/models/prompts.ts";
 import type { Variant } from "../../core/variants/types.ts";
 
 function buildToolChoice(data: ToolDecisionInput): DecisionInput {
@@ -19,9 +19,11 @@ function buildToolChoice(data: ToolDecisionInput): DecisionInput {
   const toolQ = base.questions.selected_tool;
   if (toolQ.type !== "choice") return base;
 
+  // Mismo tratamiento que producción (descripción recortada con `shortDesc` y marca de herramienta fallida); solo cambian los textos de abajo.
+  const failed = lastFailedBy(data.attempts, (a) => a.tool);
   const criteria: Record<string, string> = {};
   for (const t of data.tools) {
-    let desc = t.description ? t.description.trim() : t.name;
+    let desc = shortDesc(t.description, t.name);
     if (t.name === "write_file") {
       desc = "Create a text file, overwrite an existing file entirely, or write/append content to a file.";
     } else if (t.name === "edit_file") {
@@ -31,7 +33,7 @@ function buildToolChoice(data: ToolDecisionInput): DecisionInput {
     } else if (t.name === "media_control") {
       desc = "Control active playback state: pause, resume, stop, skip, volume up/down/mute.";
     }
-    criteria[t.name] = desc;
+    criteria[t.name] = failed.get(t.name) === true ? `${desc} [FAILED - AVOID]` : desc;
   }
 
   return {

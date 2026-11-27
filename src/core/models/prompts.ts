@@ -16,6 +16,7 @@ import { ARGS_REVIEWS, COMPLETION_KEY, RECOVERY_KEY } from "../contracts.ts";
 import type { ContinuationInput, FirstQueryInput, PreviousTask } from "../contracts.ts";
 import { retitlePending } from "../render/pending.ts";
 import { threadBlock } from "../render/thread.ts";
+import type { CoverageDecisionInput, DependencyDecisionInput, ReadSelectionInput, RequirementsDecisionInput } from "../contracts.ts";
 import type { ArgsReview, CompletionDecisionInput, RecoveryDecisionInput, DecisionAttempt, DecisionFrame, ReviewDecisionInput, RouteDecisionInput, ToolDecisionInput, VerifyCheckKey, VerifyDecisionInput } from "../contracts.ts";
 import type { Platform } from "../environment.ts";
 import { DESTINATIONS } from "../tools/manifest.ts";
@@ -361,6 +362,15 @@ export const MOVE_STEP = /\b(mov[eéi]|mover|renombr|pas[aá]|move|rename)/i;
 export const ROUTE_QUESTION =
   "Where should this step run? If the step says where or how to do it (the terminal, a command, the web, a file path), follow it.";
 
+/** Niveles de la pregunta `score` del libro de requisitos, del peor al mejor (el 0 y el 1 son «no está»; desde el 2, «está en parte»). */
+export const DELIVERED_LEVELS = [
+  "Missing, or only a placeholder, a note that it is pending, or a promise to add it later.",
+  "Only mentioned or named, with no real information.",
+  "Partly covered with real information.",
+  "Mostly covered with real information.",
+  "Fully covered with real information.",
+] as const;
+
 export const DECISION_PROMPTS = {
   /**
    * Hilo: ¿el pedido nuevo continúa la tarea anterior? Una pregunta `noul` con la tarea anterior y el pedido nuevo (texto de la prueba de continuación,
@@ -448,6 +458,111 @@ Does the PASSAGE contain information that answers the QUESTION?`,
           criteria: {
             true: "Every part of the REQUEST is done.",
             false: "Some part of the REQUEST is missing or not done yet.",
+          },
+        },
+      },
+    };
+  },
+
+  /**
+   * Libro de requisitos: por cada requisito `i` de la solicitud, tres preguntas en los tres formatos, repartidas en una consulta por tipo de evidencia (el servidor repite el
+   * estado por cada pregunta: con todo junto el contexto se desbordaba, y cada pregunta veía además un texto que no le servía):
+   * - `types`, sobre la solicitud: `t{i}` (`choice`) separa los requisitos que piden buscar información de los que son una acción sobre la computadora (esos los cubre Decisión 5).
+   * - `reads`, sobre las lecturas: `g{i}` (`noul`) pregunta si traen información real de ese requisito.
+   * - `deliverable`, sobre el archivo escrito: `d{i}` (`score`, cinco niveles) pregunta cuánto de él quedó ahí; `null` si no hay entregable.
+   * La pregunta compara siempre contra un texto concreto y no contra «todo lo hecho», que es donde el modelo se equivocaba al cerrar.
+   */
+  buildRequirementsCheck(data: RequirementsDecisionInput): { readonly types: DecisionInput; readonly reads: DecisionInput; readonly deliverable: DecisionInput | null } {
+    const part = (requirement: string): string => `PART: "${safe(requirement)}"`;
+    const request = `REQUEST: ${safe(data.request)}`;
+    const types: Record<string, DecisionQuestion> = {};
+    const reads: Record<string, DecisionQuestion> = {};
+    const delivered: Record<string, DecisionQuestion> = {};
+    data.requirements.forEach((requirement, i) => {
+      types[`t${i}`] = {
+        type: "choice",
+        instructions: `${part(requirement)}\nWhat kind of work is this part?`,
+        criteria: {
+          info: "Finding, researching or collecting information (a lookup on the web, in files or on the computer).",
+          act: "An action on the computer with no lookup of its own: creating or writing a file or folder (even with information found earlier), moving, opening, playing or running something.",
+        },
+      };
+      reads[`g${i}`] = {
+        type: "noul",
+        instructions: `${part(requirement)}\nDo the READS contain real information about this part?`,
+        criteria: {
+          true: "At least one read result states concrete facts about this part (names, prices, places, data).",
+          false: "No read result is about this part, or the searches found nothing useful for it.",
+        },
+      };
+      delivered[`d${i}`] = {
+        type: "score",
+        instructions: `${part(requirement)}\nHow completely does the DELIVERABLE contain real information about this part? A heading with only a note that it is pending or being searched does not count.`,
+        criteria: DELIVERED_LEVELS,
+      };
+    });
+    return {
+      types: { state: request, questions: types },
+      reads: { state: `${request}\n\nREADS:\n${data.reads}`, questions: reads },
+      deliverable: data.deliverable === null ? null : { state: `${request}\n\nDELIVERABLE:\n${data.deliverable}`, questions: delivered },
+    };
+  },
+
+  /**
+   * Dependencias entre ítems: tras un ítem fallido (`blocked`), una pregunta `noul` por cada ítem de atrás (`b{i}`): ¿necesita el resultado de ese ítem? El estado es la
+   * solicitud y la pregunta lleva el par. Medida con d3:2b sobre ítems de trazas reales (viaje a Ushuaia, Buenos Aires y Mendoza, Gemini y GPT, mover y renombrar): 12 de 12
+   * pares bien, los independientes entre 0,00 y 0,06 y los dependientes entre 0,98 y 1,00 (`scripts/validate/probe_mechanisms.ts`).
+   */
+  buildDependencies(data: DependencyDecisionInput): DecisionInput {
+    const questions: Record<string, DecisionQuestion> = {};
+    data.items.forEach((item, i) => {
+      questions[`b${i}`] = {
+        type: "noul",
+        instructions: `ITEM A: "${safe(data.blocked)}"\nITEM B: "${safe(item)}"\nDoes ITEM B need the result of ITEM A?`,
+        criteria: {
+          true: "B uses something that A produces, finds or creates, so A has to be done first.",
+          false: "B can be done without A: they are separate things to do.",
+        },
+      };
+    });
+    return { state: `REQUEST: ${safe(data.request)}`, questions };
+  },
+
+  /**
+   * Elección de lecturas: una pregunta `noul` por lectura candidata (`r{i}`), con la lectura dentro de la pregunta (como el juez de fragmentos) y el paso como estado:
+   * ¿trae información que este paso necesita? Medida con d3:2b sobre las 4 lecturas de una tarea real (viaje a Ushuaia): la lectura propia de cada paso dio entre 0,98 y
+   * 1,00 y las demás entre 0,01 y 0,55 (`scripts/validate/probe_reads.ts`).
+   */
+  buildReadSelection(data: ReadSelectionInput): DecisionInput {
+    const questions: Record<string, DecisionQuestion> = {};
+    data.reads.forEach((read, i) => {
+      questions[`r${i}`] = {
+        type: "noul",
+        instructions: `READ (${safe(read.label)}):\n"""\n${safe(read.text)}\n"""\nDoes this READ contain information that this TASK needs?`,
+        criteria: {
+          true: "The read states facts about what the task needs (names, prices, places, data), even partially.",
+          false: "The read is about something else.",
+        },
+      };
+    });
+    return { state: `TASK: ${safe(data.task)}`, questions };
+  },
+
+  /**
+   * Cobertura de la primera lista (modo sombra): una pregunta `noul` (`covers`) con la solicitud y la lista como estado. Medida con d3:2b sobre listas reales: la lista de un
+   * solo ítem que perdió la búsqueda dio 0,33 y la que solo decía «guardar» 0,75; las listas completas y los pedidos simples, entre 0,97 y 1,00
+   * (`scripts/validate/probe_coverage.ts`). Muestra chica: por eso solo se registra.
+   */
+  buildCoverage(data: CoverageDecisionInput): DecisionInput {
+    return {
+      state: `REQUEST: ${safe(data.request)}\n\nTO-DO LIST:\n${data.list.map((item, i) => `${i + 1}. ${safe(item)}`).join(`\n`)}`,
+      questions: {
+        covers: {
+          type: "noul",
+          instructions: "Does the TO-DO LIST cover every thing that the REQUEST asks to do?",
+          criteria: {
+            true: "Each action the request asks for (looking something up, creating, saving, moving, running) has an item in the list.",
+            false: "The request asks for something (such as looking up or collecting information) that no item of the list does.",
           },
         },
       },

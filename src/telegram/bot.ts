@@ -28,7 +28,7 @@ import { StatusMessage } from "./statusMessage.ts";
 import { AUTO_CONFIRM_CALLBACK, AUTO_SPEC, runSwitch, voiceSwitchOf } from "./switches.ts";
 import { describeWaiting, tagOf, waitKey } from "./waitingPrompt.ts";
 
-export interface TelegramDeps {
+interface TelegramDeps {
   cfg: TelegramConfig;
   /** Configuración de voz si Telegram debe sumar una nota de voz a la respuesta; `null` si está apagada. Se lee en cada respuesta. */
   getVoice: () => VoiceConfig | null;
@@ -286,7 +286,12 @@ class TelegramBridge {
     for (const op of event.ops) {
       if (t.status.progress.apply(op)) changed = true;
       if (op.op === "set" && op.target === "result" && op.value.text) {
-        await this.sendResult(t, op.value.text);
+        // Un fallo al entregar la respuesta no debe saltarse el `finish` que libera `this.current`.
+        try {
+          await this.sendResult(t, op.value.text);
+        } catch (error) {
+          console.error("[telegram] no se pudo enviar la respuesta:", error instanceof Error ? error.message : error);
+        }
         if (t.finished) this.tasks.delete(event.taskId);
       }
       if (op.op === "finish") await this.onFinish(event.taskId, t, op.value);

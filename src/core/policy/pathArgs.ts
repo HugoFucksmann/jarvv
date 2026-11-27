@@ -8,7 +8,7 @@
  */
 
 /** Claves de argumentos cuyo valor es una ruta (un string). Incluye `cwd`, la carpeta de trabajo de un comando. */
-export const PATH_ARG_KEYS = ["path", "source", "src", "destination", "dest", "directory", "dir", "file", "folder", "cwd"] as const;
+const PATH_ARG_KEYS = ["path", "source", "src", "destination", "dest", "directory", "dir", "file", "folder", "cwd"] as const;
 
 /** Clave de argumento cuyo valor es un arreglo de rutas. */
 export const PATH_LIST_KEY = "paths";

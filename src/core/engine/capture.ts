@@ -14,7 +14,7 @@ import type { IMCPServer } from "../mcp/types.ts";
 import type { ToolCallOptions } from "../tools/provider.ts";
 import type { MCPCallResult, StageId } from "../types.ts";
 import { errorMessage, isRecord } from "../utils.ts";
-import type { ContinuationInput, EngineLLM, FirstQueryInput, IActionDecision, ProbeQuery } from "../contracts.ts";
+import type { ContinuationInput, CoverageDecisionInput, DependencyDecisionInput, EngineLLM, FirstQueryInput, IActionDecision, ProbeQuery, ReadSelectionInput, RequirementsDecisionInput } from "../contracts.ts";
 import type { CaptureSink } from "../trace/sink.ts";
 
 export { NULL_SINK } from "../trace/sink.ts";
@@ -73,7 +73,11 @@ export function captureDecision(
   sink: CaptureSink,
   version: () => number,
 ): IActionDecision {
-  const { probe, continuation, firstQuery } = {
+  const { probe, continuation, firstQuery, checkRequirements, checkDependencies, selectReads, checkCoverage } = {
+    checkCoverage: decision.checkCoverage?.bind(decision),
+    selectReads: decision.selectReads?.bind(decision),
+    checkRequirements: decision.checkRequirements?.bind(decision),
+    checkDependencies: decision.checkDependencies?.bind(decision),
     probe: decision.probe?.bind(decision),
     continuation: decision.continuation?.bind(decision),
     firstQuery: decision.firstQuery?.bind(decision),
@@ -84,6 +88,10 @@ export function captureDecision(
     reviewArgs: (input, signal) => observe("review", sink, version, () => decision.reviewArgs(input, signal)),
     verifyResult: (input, signal) => observe("verify", sink, version, () => decision.verifyResult(input, signal)),
     checkCompletion: (input, signal) => observe("completion", sink, version, () => decision.checkCompletion(input, signal)),
+    ...(checkRequirements === undefined ? {} : { checkRequirements: (input: RequirementsDecisionInput, signal?: AbortSignal) => observe("requirements", sink, version, () => checkRequirements(input, signal)) }),
+    ...(checkDependencies === undefined ? {} : { checkDependencies: (input: DependencyDecisionInput, signal?: AbortSignal) => observe("dependencies", sink, version, () => checkDependencies(input, signal)) }),
+    ...(selectReads === undefined ? {} : { selectReads: (input: ReadSelectionInput, signal?: AbortSignal) => observe("reads", sink, version, () => selectReads(input, signal)) }),
+    ...(checkCoverage === undefined ? {} : { checkCoverage: (input: CoverageDecisionInput, signal?: AbortSignal) => observe("coverage", sink, version, () => checkCoverage(input, signal)) }),
     ...(probe === undefined ? {} : { probe: (input: ProbeQuery, signal?: AbortSignal) => observe("probe", sink, version, () => probe(input, signal)) }),
     ...(continuation === undefined ? {} : { continuation: (input: ContinuationInput, signal?: AbortSignal) => observe("continuation", sink, version, () => continuation(input, signal)) }),
     ...(firstQuery === undefined ? {} : { firstQuery: (input: FirstQueryInput, signal?: AbortSignal) => observe("first_query", sink, version, () => firstQuery(input, signal)) }),

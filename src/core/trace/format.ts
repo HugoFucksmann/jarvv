@@ -106,13 +106,21 @@ export function slimQuery(model: ModelRecord): SlimQuery {
     finishReason = typeof first?.finish_reason === "string" ? first.finish_reason : null;
     modelName = typeof output?.model === "string" ? output.model : null;
     const usage = asRecord(output?.usage);
-    tokens = usage === null ? null : { input: Number(usage.prompt_tokens ?? NaN) || null, output: Number(usage.completion_tokens ?? NaN) || null };
+    const count = (v: unknown): number | null => {
+      const n = Number(v ?? NaN);
+      return Number.isFinite(n) ? n : null;
+    };
+    tokens = usage === null ? null : { input: count(usage.prompt_tokens), output: count(usage.completion_tokens) };
   } else if (asRecord(output?.answers) !== null) {
     // Modelo de decisión.
     interpreted = compactAnswers(output?.answers as Record<string, unknown>);
     modelName = typeof output?.model === "string" ? output.model : null;
     const usage = asRecord(output?.usage);
-    tokens = usage === null ? null : { input: Number(usage.input_tokens ?? NaN) || null, output: Number(usage.output_tokens ?? NaN) || null };
+    const count = (v: unknown): number | null => {
+      const n = Number(v ?? NaN);
+      return Number.isFinite(n) ? n : null;
+    };
+    tokens = usage === null ? null : { input: count(usage.input_tokens), output: count(usage.output_tokens) };
   }
 
   return {
@@ -136,7 +144,7 @@ export function slimQuery(model: ModelRecord): SlimQuery {
 
 // ───────────────────────── Herramientas y refs ─────────────────────────
 
-export interface SlimTool extends Omit<ToolRecord, "result"> {
+interface SlimTool extends Omit<ToolRecord, "result"> {
   /** Principio del resultado crudo; el resto está en la ref o en `full.json.gz`. */
   resultHead: string | null;
 }
@@ -146,7 +154,7 @@ export function slimTool(tool: ToolRecord): SlimTool {
   return { ...rest, resultHead: result === null ? null : result.slice(0, TOOL_RESULT_HEAD_CHARS) };
 }
 
-export interface RefInfo extends Pick<Ref, "id" | "stepId" | "label" | "size" | "where"> {
+interface RefInfo extends Pick<Ref, "id" | "stepId" | "label" | "size" | "where"> {
   /** Principio del contenido (puede faltar si el archivo ya no existe). */
   head: string | null;
 }
@@ -278,6 +286,8 @@ export interface SummaryInput {
   startedAt: number;
   endedAt: number;
   meta: TraceMeta;
+  /** Causa del cierre que informó el motor (más fina que `stopReason`); `null` si no distinguió. */
+  closeCause?: string | null;
   queries: readonly SlimQuery[];
   tools: readonly ToolRecord[];
   waits: readonly WaitRecord[];
@@ -292,7 +302,7 @@ export function buildSummary(input: SummaryInput): string {
   const md: string[] = [];
   md.push(`# Traza: ${oneLine(task.request, 120)}`, "");
   md.push(
-    `- Tarea \`${task.id}\` · modo **${task.mode}** · estado **${task.state}**${task.stopReason ? ` (${task.stopReason})` : ""} · ${seconds(total)}`,
+    `- Tarea \`${task.id}\` · modo **${task.mode}** · estado **${task.state}**${task.stopReason ? ` (${task.stopReason}${input.closeCause ? `: ${input.closeCause}` : ""})` : ""} · ${seconds(total)}`,
     `- ${s.steps.length} pasos · ${s.calls.length} llamadas · ${queries.length} consultas a modelos (${meta.models.generative} y ${meta.models.decision})`,
     `- Código ${meta.gitSha ?? "?"} · formato v${meta.formatVersion} · \`trace.json\` (liviana) y \`full.json.gz\` (completa, con entradas crudas)`,
     "",
@@ -390,6 +400,7 @@ export function indexEntry(input: SummaryInput, folder: string): Record<string, 
     mode: s.task.mode,
     state: s.task.state,
     stopReason: s.task.stopReason ?? null,
+    closeCause: input.closeCause ?? null,
     request: oneLine(s.task.request, 160),
     steps: s.steps.length,
     calls: s.calls.length,

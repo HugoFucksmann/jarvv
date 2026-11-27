@@ -10,7 +10,8 @@ import path from "node:path";
 import { test } from "node:test";
 
 import { BUDGET } from "../src/core/budget.ts";
-import type { EngineDeps } from "../src/core/contracts.ts";
+import type { CoverageDecisionInput, DependencyDecisionInput, EngineDeps, ReadSelectionInput, RequirementsDecisionInput, RequirementVerdict } from "../src/core/contracts.ts";
+import type { DiskView } from "../src/core/types/disk.ts";
 import { create } from "../src/core/ctx/index.ts";
 import type { TaskContext } from "../src/core/ctx/index.ts";
 import { runTask } from "../src/core/engine/runTask.ts";
@@ -80,8 +81,19 @@ interface Scenario {
   readonly follows?: number;
   /** La consulta de continuación falla (`"unavailable"` cierra la tarea; `"invalid"`/`"overflow"` siguen sin hilo). */
   readonly continuationFails?: FailKind;
+  /** Libro de requisitos: lo que responde el doble en su `n`-ésima consulta (0, 1…); sin esto, el doble no implementa `checkRequirements`. */
+  readonly requirementsFor?: (n: number, input: RequirementsDecisionInput) => RequirementVerdict[];
+  /** Cobertura de la primera lista (modo sombra): lo que responde el doble; `"fail"` = la consulta falla; sin esto, el doble no implementa `checkCoverage`. */
+  readonly coverageFor?: ((input: CoverageDecisionInput) => number) | "fail";
+  /** Elección de lecturas: lo que responde el doble (una probabilidad por lectura candidata); `"fail"` = la consulta falla; sin esto, el doble no implementa `selectReads`. */
+  readonly readsFor?: ((input: ReadSelectionInput) => number[]) | "fail";
+  /** Dependencias entre ítems: lo que responde el doble (una probabilidad por ítem de atrás del fallido); sin esto, el doble no implementa `checkDependencies`. */
+  readonly dependenciesFor?: (input: DependencyDecisionInput) => number[];
+  /** El disco que ven el motor (poscondiciones y observación de artefactos); sin esto, el disco real. */
+  readonly disk?: DiskView;
   /** Modo sombra de `recovery` encendido (`recoveryShadow`); `choose` = lo que responde el doble de Decisión (`"fail"` = el servicio falla; sin él, el doble no implementa `chooseRecovery`). */
   readonly shadow?: { readonly choose?: "close" | "rewrite_item" | "replan" | "fail" };
+  readonly onClosing?: (cause: string) => void;
 }
 
 type FailKind = "unavailable" | "invalid" | "overflow";
@@ -109,6 +121,14 @@ interface Outcome {
   /** Eventos `recovery` que llegaron al receptor de la traza y consultas del modo sombra a Decisión. */
   readonly shadowEvents: { readonly stage: string; readonly input: string | null; readonly output: string | null; readonly error: string | null }[];
   readonly shadowQueries: number;
+  /** Las entradas que recibió el libro de requisitos, una por consulta. */
+  readonly requirementChecks: RequirementsDecisionInput[];
+  /** Las entradas que recibió la consulta de dependencias entre ítems. */
+  readonly dependencyChecks: DependencyDecisionInput[];
+  /** Las entradas que recibió la elección de lecturas. */
+  readonly readChecks: ReadSelectionInput[];
+  /** Las entradas que recibió la consulta de cobertura de la primera lista. */
+  readonly coverageChecks: CoverageDecisionInput[];
 }
 
 async function run(s: Scenario): Promise<Outcome> {
@@ -119,6 +139,10 @@ async function run(s: Scenario): Promise<Outcome> {
   let pendingQueries = 0;
   let completionChecks = 0;
   let verified = 0;
+  const requirementChecks: RequirementsDecisionInput[] = [];
+  const dependencyChecks: DependencyDecisionInput[] = [];
+  const readChecks: ReadSelectionInput[] = [];
+  const coverageChecks: CoverageDecisionInput[] = [];
   const threads = { pending: [] as unknown[], final: [] as unknown[], memory: [] as unknown[] };
   const finalViews: string[] = [];
   const argViews: string[] = [];
@@ -190,6 +214,40 @@ async function run(s: Scenario): Promise<Outcome> {
               return { action: s.shadow?.choose as "close" | "rewrite_item" | "replan", probabilities: {}, rawInput: "entrada de recovery", rawOutput: "salida de recovery" };
             },
           }),
+      ...(s.coverageFor === undefined
+        ? {}
+        : {
+            checkCoverage: async (input: CoverageDecisionInput) => {
+              coverageChecks.push(input);
+              if (s.coverageFor === "fail") throw decisionFailure("unavailable");
+              return { covers: s.coverageFor!(input), rawInput: "", rawOutput: "" };
+            },
+          }),
+      ...(s.readsFor === undefined
+        ? {}
+        : {
+            selectReads: async (input: ReadSelectionInput) => {
+              readChecks.push(input);
+              if (s.readsFor === "fail") throw decisionFailure("unavailable");
+              return { relevance: s.readsFor!(input), rawInput: "", rawOutput: "" };
+            },
+          }),
+      ...(s.dependenciesFor === undefined
+        ? {}
+        : {
+            checkDependencies: async (input: DependencyDecisionInput) => {
+              dependencyChecks.push(input);
+              return { dependent: s.dependenciesFor!(input), rawInput: "", rawOutput: "" };
+            },
+          }),
+      ...(s.requirementsFor === undefined
+        ? {}
+        : {
+            checkRequirements: async (input: RequirementsDecisionInput) => {
+              requirementChecks.push(input);
+              return { items: s.requirementsFor!(requirementChecks.length - 1, input), rawInput: "", rawOutput: "" };
+            },
+          }),
       checkCompletion: async () => {
         completionChecks++;
         if (s.completionFails !== undefined && s.completionFails !== false) throw decisionFailure(s.completionFails === true ? "unavailable" : s.completionFails);
@@ -212,7 +270,9 @@ async function run(s: Scenario): Promise<Outcome> {
     environment: async () => ({ platform: "windows", home: s.home ?? "C:\\Users\\Ana" }),
     autoMode: () => s.autoMode ?? false,
     completionCoverageGuard: () => s.coverageGuard ?? false,
+    ...(s.disk === undefined ? {} : { disk: s.disk }),
     previousTask: s.previous ?? null,
+    ...(s.onClosing === undefined ? {} : { sink: { llm: () => undefined, tool: () => undefined, closing: (e) => s.onClosing!(e.cause) } }),
     ...(s.shadow === undefined ? {} : { recoveryShadow: () => true, sink: { llm: (e) => void (e.stage === "recovery" && shadowEvents.push({ stage: e.stage, input: e.input, output: e.output, error: e.error })), tool: () => undefined } }),
   };
 
@@ -226,7 +286,7 @@ async function run(s: Scenario): Promise<Outcome> {
   runtime = new TaskRuntime({ onChange: (waiting) => waiting !== null && s.onWait !== undefined && queueMicrotask(() => s.onWait!(waiting, runtime)) });
   await runTask(ctx, runtime, deps);
   fs.rmSync(dir, { recursive: true, force: true });
-  return { ctx, dispatched, reviews, ended, pendingQueries, completionChecks, threads, finalViews, argViews, shadowEvents, shadowQueries };
+  return { ctx, dispatched, reviews, ended, pendingQueries, completionChecks, threads, finalViews, argViews, shadowEvents, shadowQueries, requirementChecks, dependencyChecks, readChecks, coverageChecks };
 }
 
 test("lectura: se despacha, se verifica y la tarea se completa con respuesta del modelo", async () => {
@@ -549,6 +609,27 @@ test("topes: el modelo repite los mismos argumentos tras un rechazo en el paso y
   assert.deepEqual(ctx.find("calls", { stepId: calls[0].stepId }).map((c) => c.status), ["ok", "loop_blocked", "loop_blocked"], "dos bloqueos fallan el paso");
   assert.equal(ctx.find("steps", { state: "failed" }).length, 1, "si pending devuelve exactamente el mismo texto tras el fallo, cierra sin ejecutar otro paso");
   assert.equal(ctx.task.stopReason, "no_alternatives");
+});
+
+test("pending: si tras un fallo repite el ítem idéntico se vuelve a pedir una vez antes de cerrar, y una segunda lista distinta continúa", async () => {
+  const { ctx, pendingQueries } = await run({
+    request: DOCS,
+    tool: "list_folder",
+    args: LIST,
+    verifyFor: (n) => (n === 0 ? REJECT : { ok: 0.95, cumple: 0.95 }),
+    pendingFor: (n) => (n < 2 ? [DOCS] : n === 2 ? ["Mostrar el contenido de la carpeta Documents"] : []),
+  });
+  assert.ok(pendingQueries >= 3, "la tercera consulta es el reintento de la lista idéntica");
+  assert.notEqual(ctx.task.stopReason, "no_alternatives");
+  assert.equal(ctx.task.state, "completed");
+});
+
+test("topes: si los argumentos salen idénticos a una llamada ya hecha se vuelven a generar y no se registra un loop_blocked", async () => {
+  const other = { ...LIST, sortBy: "size" };
+  // Generaciones: 0 = LIST (rechazada por D4), 1 = LIST otra vez (repetida: no se registra), 2 = otra carpeta.
+  const { ctx, dispatched } = await run({ request: DOCS, tool: "list_folder", args: LIST, argsFor: (n) => (n < 2 ? LIST : other), verifyFor: (n) => (n === 0 ? REJECT : { ok: 0.95, cumple: 0.95 }) });
+  assert.deepEqual(dispatched.map((d) => d.args), [LIST, other]);
+  assert.ok(ctx.find("calls", {}).every((c) => c.status !== "loop_blocked"), "la repetición se evitó antes de registrarse");
 });
 
 // Un `tool_error` se rechaza sin consultar a D4 (no hay datos que juzgar): solo se verifica el resultado del reintento.
@@ -1224,4 +1305,224 @@ test("modo sombra: sin `chooseRecovery` en Decisión solo corren las reglas", as
   const record = JSON.parse(shadowEvents[0].output ?? "null");
   assert.equal(record.model, null);
   assert.equal(record.source, "none");
+});
+
+// ───────────────────────── Libro de requisitos y artefactos observados ─────────────────────────
+
+/** Las rutas que lee el doble: el pre-chequeo exige que salgan del pedido. */
+const READ_PATHS = [0, 1, 2, 3, 4].map((n) => `C:\\Users\\Ana\\Documentos${n}`).join(", ");
+
+const DONE_REQ: RequirementVerdict = { info: 0.9, gathered: 0.9, delivered: null };
+
+test("libro de requisitos: un requisito sin datos reabre la lista con ese paso, sin consultar al modelo de pendientes", async () => {
+  const out = await run({
+    request: `Buscar A y buscar B en ${READ_PATHS}`,
+    first: "multi",
+    tool: "list_folder",
+    args: {},
+    argsFor: (n) => ({ path: `C:\\Users\\Ana\\Documentos${n}` }),
+    pendingFor: (n) => (n === 0 ? ["Buscar A", "Buscar B"] : []),
+    completion: 0.9,
+    requirementsFor: (n) => (n === 0 ? [DONE_REQ, { info: 0.9, gathered: 0.1, delivered: null }] : [DONE_REQ, DONE_REQ]),
+  });
+  assert.equal(out.ctx.task.state, "completed");
+  assert.equal(out.requirementChecks.length, 2, "una consulta por cierre");
+  assert.deepEqual(out.requirementChecks[0].requirements, ["Buscar A", "Buscar B"], "los requisitos son la primera lista de pendientes");
+  assert.equal(out.dispatched.length, 3, "los dos pasos y el que cubre el hueco");
+  assert.equal(out.pendingQueries, 1, "el hueco entra a la lista sin pasar por el modelo de pendientes");
+  const steps = out.ctx.find("steps", {}).map((s) => s.instruction);
+  assert.equal(steps[2], "Buscar B", "el paso que se repite es el requisito sin datos");
+});
+
+test("libro de requisitos: una acción sin búsqueda no se juzga, y sin huecos el cierre es el de Decisión 5", async () => {
+  const out = await run({
+    request: `Buscar A y crear el archivo en ${READ_PATHS}`,
+    first: "multi",
+    tool: "list_folder",
+    args: {},
+    argsFor: (n) => ({ path: `C:\\Users\\Ana\\Documentos${n}` }),
+    pendingFor: (n) => (n === 0 ? ["Buscar A", "Crear el archivo"] : []),
+    completion: 0.9,
+    // El segundo requisito es una acción (`info` bajo): sus lecturas vacías no son un hueco.
+    requirementsFor: () => [DONE_REQ, { info: 0.1, gathered: 0.0, delivered: null }],
+  });
+  assert.equal(out.ctx.task.state, "completed");
+  assert.equal(out.requirementChecks.length, 1);
+  assert.equal(out.dispatched.length, 2);
+});
+
+test("libro de requisitos: un requisito de una sola acción no tiene libro (la solicitud literal es el único ítem)", async () => {
+  const out = await run({
+    request: "Buscar A en C:\\Users\\Ana\\Documentos",
+    tool: "list_folder",
+    args: { path: "C:\\Users\\Ana\\Documentos" },
+    first: "single",
+    completion: 0.9,
+    requirementsFor: () => [{ info: 0.9, gathered: 0.0, delivered: null }],
+  });
+  assert.equal(out.requirementChecks.length, 0);
+  assert.equal(out.ctx.task.state, "completed");
+});
+
+test("libro de requisitos: tiene tope de reaperturas (MAX_REOPENS) aunque el modelo insista en que falta", async () => {
+  const out = await run({
+    request: `Buscar A y buscar B en ${READ_PATHS}`,
+    first: "multi",
+    tool: "list_folder",
+    args: {},
+    argsFor: (n) => ({ path: `C:\\Users\\Ana\\Documentos${n}` }),
+    pendingFor: (n) => (n === 0 ? ["Buscar A", "Buscar B"] : []),
+    completion: 0.9,
+    requirementsFor: () => [DONE_REQ, { info: 0.9, gathered: 0.0, delivered: null }],
+  });
+  assert.equal(out.ctx.task.state, "completed");
+  assert.equal(out.dispatched.length, 2 + 2, "dos pasos más las dos reaperturas permitidas");
+  assert.equal(out.requirementChecks.length, 2, "se deja de consultar cuando ya no se puede reabrir");
+});
+
+const VIAJE = "C:\\Users\\Ana\\viaje.md";
+const VIAJE_TEXT = "# Viaje a Mendoza\n\n## Hospedaje\n- Hotel A\n\n## Pasajes\n- Se están buscando opciones\n\n## Hospedaje\n- Hotel A\n";
+const fakeDisk: DiskView = {
+  exists: (p) => p === VIAJE,
+  isDirectory: () => false,
+  size: () => VIAJE_TEXT.length,
+  readText: () => VIAJE_TEXT,
+};
+
+test("artefactos: tras escribir, los modelos ven el estado real del archivo y el libro pide volcar lo que falta", async () => {
+  const out = await run({
+    request: "Buscar hospedaje y pasajes y guardarlos en C:\\Users\\Ana\\viaje.md",
+    first: "multi",
+    tool: "write_file",
+    args: {},
+    argsFor: (n) => ({ path: VIAJE, content: `bloque ${n}` }),
+    pendingFor: (n) => (n === 0 ? ["Anotar los hoteles encontrados", "Registrar vuelos y buses"] : []),
+    autoMode: true,
+    disk: fakeDisk,
+    completion: 0.9,
+    requirementsFor: (n) => (n === 0 ? [DONE_REQ, { info: 0.9, gathered: 0.9, delivered: 0.1 }] : [{ ...DONE_REQ, delivered: 0.9 }, { ...DONE_REQ, delivered: 0.9 }]),
+  });
+  assert.equal(out.ctx.task.state, "completed");
+  // La observación llega a los prompts por el entorno (`ENV`): el esbozo muestra el encabezado repetido y el relleno de «Pasajes».
+  const lastArgsView = out.argViews[out.argViews.length - 1];
+  assert.match(lastArgsView, /viaje\.md/);
+  assert.match(lastArgsView, /## Hospedaje ×2/);
+  assert.match(lastArgsView, /## Pasajes: Se están buscando opciones/);
+  // El libro vio el entregable y su estado, y el hueco volvió como un paso con la ruta.
+  assert.notEqual(out.requirementChecks[0].deliverable, null);
+  assert.match(out.requirementChecks[0].deliverable ?? "", /C:\\Users\\Ana\\viaje\.md · \d+ B, \d+ lines\n# Viaje a Mendoza\n## Hospedaje \(×2\)\n {4}Hotel A\n## Pasajes\n {4}Se están buscando opciones/);
+  const steps = out.ctx.find("steps", {}).map((s) => s.instruction);
+  assert.match(steps[2] ?? "", /^Add to the file C:\\Users\\Ana\\viaje\.md the information found about: Registrar vuelos y buses/);
+});
+
+// ───────────────────────── Dependencias entre ítems: un ítem fallido no cierra la tarea ─────────────────────────
+
+/** Dos ítems: el primero lo deniega el Guard (`format c:`) y el segundo es inofensivo. El modelo de pendientes, tras el fallo, devuelve solo el segundo. */
+const DENIED_FIRST = {
+  request: "Formatear el disco y mostrar la fecha",
+  first: "multi",
+  tool: "run_command",
+  args: {},
+  argsFor: (n: number) => (n === 0 || n === 1 || n >= 3 ? { command: "format c:" } : { command: "Get-Date" }),
+  pendingFor: (n: number) => (n === 0 ? ["Formatear el disco", "Mostrar la fecha"] : n === 1 ? ["Mostrar la fecha"] : []),
+  resultFor: () => FINISHED,
+} as const;
+
+test("dependencias: si el ítem fallido no lo necesita nadie, se difiere detrás de los demás y la tarea sigue (no cierra por saltarlo)", async () => {
+  const out = await run({ ...DENIED_FIRST, dependenciesFor: () => [0.02] });
+  assert.deepEqual(out.dependencyChecks[0], { request: "Formatear el disco y mostrar la fecha", blocked: "Formatear el disco", items: ["Mostrar la fecha"] });
+  assert.deepEqual(out.dispatched.map((d) => d.args), [{ command: "Get-Date" }], "el ítem independiente se ejecutó; lo denegado nunca llegó a la herramienta");
+  const steps = out.ctx.find("steps", {}).map((s) => `${s.instruction}:${s.state}`);
+  assert.deepEqual(steps.slice(0, 2), ["Formatear el disco:failed", "Mostrar la fecha:completed"]);
+  assert.equal(steps[2]?.startsWith("Formatear el disco"), true, "el ítem diferido se reintenta al final, una sola vez");
+  assert.equal(out.ctx.task.state, "partial", "se logró una parte: no es `failed` ni se perdió lo que sí se pudo hacer");
+});
+
+test("dependencias: si todos los de atrás necesitan el resultado del fallido, se cierra como antes", async () => {
+  const out = await run({ ...DENIED_FIRST, dependenciesFor: () => [0.99] });
+  assert.equal(out.dispatched.length, 0);
+  assert.equal(out.ctx.task.stopReason, "no_alternatives");
+});
+
+test("dependencias: sin veredicto (la consulta falla o no existe) se cierra como antes", async () => {
+  const withoutQuery = await run({ ...DENIED_FIRST });
+  assert.equal(withoutQuery.ctx.task.stopReason, "no_alternatives");
+  assert.equal(withoutQuery.dispatched.length, 0);
+});
+
+// ───────────────────────── Elección de lecturas por relevancia al paso ─────────────────────────
+
+/** Cinco pasos que leen una carpeta cada uno (resultado distinto por llamada); el quinto necesita lo que leyó el primero, que ya quedó fuera de las últimas 3 lecturas. */
+const FIVE_READS = {
+  request: `Listar ${[0, 1, 2, 3, 4].map((n) => `C:\Users\Ana\Documentos${n}`).join(", ")} y resumir la primera`,
+  first: "multi",
+  tool: "list_folder",
+  args: {},
+  argsFor: (n: number) => ({ path: `C:\Users\Ana\Documentos${n}` }),
+  pendingFor: (n: number) => (n === 0 ? ["Listar la carpeta cero", "Listar la carpeta uno", "Listar la carpeta dos", "Listar la carpeta tres", "Resumir lo que había en la primera carpeta"] : []),
+  resultFor: (n: number) => ({ content: [{ type: "text", text: `[FILE] archivo_${n}.txt` }] }) as MCPCallResult,
+  completion: 0.9,
+} as const;
+
+test("lecturas: con más lecturas de las que caben, el paso ve la que necesita aunque sea la más vieja", async () => {
+  const out = await run({ ...FIVE_READS, readsFor: (input) => input.reads.map((_, i) => (i === 0 ? 0.99 : 0.05)) });
+  assert.equal(out.readChecks.length, 1, "una sola consulta: antes del quinto paso había 3 o menos lecturas");
+  assert.equal(out.readChecks[0].task, "Resumir lo que había en la primera carpeta");
+  assert.equal(out.readChecks[0].reads.length, 4);
+  assert.match(out.readChecks[0].reads[0].text, /archivo_0\.txt/);
+  const view = out.argViews[out.argViews.length - 1];
+  assert.match(view, /archivo_0\.txt/, "la lectura relevante, aunque quedó fuera de las últimas 3");
+  assert.match(view, /archivo_3\.txt/, "y las más recientes completan el tamaño de siempre");
+  assert.equal(view.includes("archivo_1.txt"), false, "la tercera más reciente cede su lugar a la relevante (el tamaño no crece)");
+});
+
+test("lecturas: sin la consulta, o si falla, el paso ve las últimas como siempre", async () => {
+  for (const readsFor of [undefined, "fail"] as const) {
+    const out = await run({ ...FIVE_READS, ...(readsFor === undefined ? {} : { readsFor }) });
+    const view = out.argViews[out.argViews.length - 1];
+    assert.equal(out.ctx.task.state, "completed", String(readsFor));
+    assert.equal(view.includes("archivo_0.txt"), false, `${String(readsFor)}: la más vieja no se ve`);
+    assert.match(view, /archivo_1\.txt[\s\S]*archivo_3\.txt/);
+  }
+});
+
+test("lecturas: con 3 lecturas o menos no se consulta nada", async () => {
+  const out = await run({ ...FIVE_READS, pendingFor: (n: number) => (n === 0 ? ["Listar la carpeta cero", "Listar la carpeta uno", "Resumir lo que había en la primera carpeta"] : []), readsFor: (input) => input.reads.map(() => 1) });
+  assert.equal(out.readChecks.length, 0);
+  assert.equal(out.ctx.task.state, "completed");
+});
+
+// ───────────────────────── Cobertura de la primera lista (modo sombra) ─────────────────────────
+
+test("cobertura (sombra): se consulta una vez con el pedido y la primera lista, y la tarea hace exactamente lo mismo con y sin ella", async () => {
+  const base = {
+    request: `Buscar A y buscar B en ${READ_PATHS}`,
+    first: "multi",
+    tool: "list_folder",
+    args: {},
+    argsFor: (n: number) => ({ path: `C:\Users\Ana\Documentos${n}` }),
+    pendingFor: (n: number) => (n === 0 ? ["Buscar A", "Buscar B"] : []),
+    completion: 0.9,
+  } as const;
+  const without = await run(base);
+  for (const coverageFor of [() => 0.2, () => 0.99, "fail" as const]) {
+    const out = await run({ ...base, coverageFor });
+    assert.equal(out.coverageChecks.length, 1, "una consulta, al aceptar la primera lista");
+    assert.deepEqual(out.coverageChecks[0], { request: base.request, list: ["Buscar A", "Buscar B"] });
+    assert.deepEqual(out.dispatched, without.dispatched, "el mismo despacho");
+    assert.deepEqual(out.ctx.find("steps", {}).map((s) => s.instruction), without.ctx.find("steps", {}).map((s) => s.instruction), "los mismos pasos");
+    assert.equal(out.ctx.task.state, without.ctx.task.state);
+    assert.equal(out.pendingQueries, without.pendingQueries);
+  }
+});
+
+test("cobertura (sombra): no se consulta si la lista no la armó el modelo (una acción con la solicitud literal)", async () => {
+  const out = await run({ request: "Buscar A en C:\Users\Ana\Documentos", first: "single", tool: "list_folder", args: { path: "C:\Users\Ana\Documentos" }, completion: 0.9, coverageFor: () => 0.1 });
+  assert.equal(out.coverageChecks.length, 0);
+});
+
+test("cierre: no_alternatives por reescritura idéntica informa su causa a la traza", async () => {
+  const causes: string[] = [];
+  await run({ request: DOCS, tool: "list_folder", args: LIST, verifyFor: () => REJECT, pendingAlways: true, onClosing: (cause) => causes.push(cause) });
+  assert.deepEqual(causes, ["identical_rewrite"]);
 });

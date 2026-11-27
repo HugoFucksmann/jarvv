@@ -25,7 +25,7 @@ export const GroupHeading: React.FC<{
   </div>
 );
 
-export type ToggleTone = "accent" | "emerald" | "yellow";
+type ToggleTone = "accent" | "emerald" | "yellow";
 
 const TONE_TRACK: Record<ToggleTone, string> = {
   accent: "bg-accent-500 border-accent-400",

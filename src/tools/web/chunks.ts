@@ -14,7 +14,7 @@
 import { fold } from "../../core/text.ts";
 import type { Doc, Source } from "./report.ts";
 
-export const CHUNK_MIN = 500;
+const CHUNK_MIN = 500;
 export const CHUNK_MAX = 800;
 /** Un fragmento más corto que esto no dice nada por sí solo. */
 const CHUNK_FLOOR = 40;

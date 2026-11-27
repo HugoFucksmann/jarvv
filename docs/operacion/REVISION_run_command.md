@@ -87,7 +87,7 @@ Con `-NonInteractive`, `Read-Host`, `pause` y `-Confirm` fallan en el acto (`New
 *Investigar:* si conviene reconocer ese error y devolver una indicación más útil al modelo, o si hay una forma de soportar la confirmación sin colgarse.
 
 **RC-04 · Inconsistencia · Media · [Código] y [Vivo parcial] — `waiting_input` encarece la generación de argumentos.**
-`callRunner` calcula `priorAttempts` como las llamadas de esa herramienta en el paso con `verdict !== "approved"`. Una llamada `waiting_input` queda sin veredicto, así que cuenta, y `priorAttempts` sube la temperatura (`argsTemperature`) del modelo que genera `{ pid, input }`, justo cuando necesita precisión. También cuenta como ejecución (`maxCallsPerStep`, 6) y como intento (`maxAttemptsPerStep`, 10). No se midió el efecto sobre la calidad.
+`callRunner` calcula `priorAttempts` como las llamadas de esa herramienta en el paso con `verdict !== "approved"`. Una llamada `waiting_input` queda sin veredicto, así que cuenta, y `priorAttempts` sube la temperatura (`escalatedTemperature`) del modelo que genera `{ pid, input }`, justo cuando necesita precisión. También cuenta como ejecución (`maxCallsPerStep`, 6) y como intento (`maxAttemptsPerStep`, 10). No se midió el efecto sobre la calidad.
 *Investigar:* si `waiting_input` debe contar como intento fallido, y el efecto real de la temperatura.
 
 ### Comportamiento del modelo alrededor de la tool

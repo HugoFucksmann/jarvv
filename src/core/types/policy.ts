@@ -13,7 +13,7 @@ export type Capability =
   | "DOWNLOAD"
   | "CONFIGURATION";
 
-export type GuardResult = "ALLOW" | "DENY" | "APPROVAL";
+type GuardResult = "ALLOW" | "DENY" | "APPROVAL";
 
 export interface GuardDecision {
   decision: GuardResult;

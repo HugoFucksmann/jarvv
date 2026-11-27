@@ -19,7 +19,10 @@
  * queda como `sensitive`, no como crítico), ni comandos construidos por concatenación.
  */
 
-export type RuleTier = "guard" | "blocked" | "sensitive";
+import path from "node:path";
+import { foldQuotes } from "./quotes.ts";
+
+type RuleTier = "guard" | "blocked" | "sensitive";
 
 export interface RuleFinding {
   readonly tier: RuleTier;
@@ -29,7 +32,7 @@ export interface RuleFinding {
   readonly reason: string;
 }
 
-export interface ClassifyOptions {
+interface ClassifyOptions {
   /** Carpetas de usuario reales (p. ej. `os.homedir()`); un borrado de la carpeta entera es crítico. */
   readonly homeDirs?: readonly string[];
 }
@@ -48,7 +51,7 @@ export function tokenize(text: string): string[] {
   let cur = "";
   let quote: string | null = null;
   let started = false;
-  for (const ch of text) {
+  for (const ch of foldQuotes(text)) {
     if (quote !== null) {
       if (ch === quote) quote = null;
       else cur += ch;
@@ -72,7 +75,7 @@ export function splitSegments(text: string, parens: boolean): string[] {
   const out: string[] = [];
   let cur = "";
   let quote: string | null = null;
-  for (const ch of text) {
+  for (const ch of foldQuotes(text)) {
     if (quote !== null) {
       cur += ch;
       if (ch === quote) quote = null;
@@ -89,6 +92,13 @@ export function splitSegments(text: string, parens: boolean): string[] {
 }
 
 const norm = (token: string): string => token.toLowerCase().replace(/\\/g, "/");
+
+/** Colapsa los segmentos `.` y `..` (`C:/Users/ana/Desktop/../..` es `C:/Users`); una ruta que sube hasta quedar vacía se trata como la raíz. */
+function collapseDots(p: string): string {
+  if (!/(^|\/)\.\.?(\/|$)/.test(p)) return p;
+  const out = path.posix.normalize(p);
+  return out === "." ? "/" : out;
+}
 const baseName = (token: string): string => norm(token).replace(/^.*\//, "").replace(/\.exe$/, "");
 
 // ───────────────────────── Rutas críticas ─────────────────────────
@@ -107,6 +117,7 @@ function pathClass(raw: string, homes: readonly string[]): PathClass | null {
   if (raw.trim() === "") return null;
   let p = norm(raw.trim()).replace(/\/{2,}/g, "/");
   for (const [re, to] of VARIABLES) p = p.replace(re, to);
+  p = collapseDots(p);
   p = p.replace(/(\/\.)+$/, "").replace(/\/\*$/, "").replace(/\/+$/, "");
   if (p === "" || /^[a-z]:$/.test(p)) return "root";
   if (/^[a-z]:\/windows(\/system32(\/.*)?)?$/.test(p)) return "root";
@@ -129,7 +140,7 @@ const USER_FOLDERS = /^\/(documents|desktop|downloads|pictures|videos|music|oned
 function isUserFolder(raw: string, homes: readonly string[]): boolean {
   let p = norm(raw.trim()).replace(/\/{2,}/g, "/");
   for (const [re, to] of VARIABLES) p = p.replace(re, to);
-  p = p.replace(/\/+$/, "");
+  p = collapseDots(p).replace(/\/+$/, "");
   const home = p.startsWith(HOME_MARK) ? HOME_MARK : homes.find((h) => p.startsWith(`${h}/`));
   return home !== undefined && USER_FOLDERS.test(p.slice(home.length));
 }

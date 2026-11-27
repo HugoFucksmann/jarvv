@@ -23,7 +23,7 @@ import { BUDGET } from "../budget.ts";
 export type { ProcessSignal } from "./extractors/types.ts";
 
 /** Estados que puede producir el procesador (los de una llamada que terminó de ejecutarse, más `denied` del servidor). */
-export type ProcessedStatus = Extract<CallStatus, "ok" | "no_data" | "not_found" | "tool_error" | "denied" | "waiting_input">;
+type ProcessedStatus = Extract<CallStatus, "ok" | "no_data" | "not_found" | "tool_error" | "denied" | "waiting_input">;
 
 export interface ProcessedResult {
   status: ProcessedStatus;

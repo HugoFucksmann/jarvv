@@ -27,7 +27,7 @@ import { BUDGET } from "../../core/budget.ts";
 import { checkAllowedDirectory } from "../../core/policy/allowedDirs.ts";
 import type { ToolCallOptions, ToolProvider, TaskEndOutcome } from "../../core/tools/provider.ts";
 import { argCapsOf } from "../../core/tools/manifest.ts";
-import { toolResult } from "../../core/tools/result.ts";
+import { toolResult, toolFail as fail } from "../../core/tools/result.ts";
 import { headTailNeutral } from "../../core/text.ts";
 import type { MCPCallResult, MCPTool } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
@@ -40,20 +40,20 @@ import { killTree } from "./processTree.ts";
 
 export { buildCommandLine, buildScript, EPILOGUE, PROLOGUE } from "./powershell.ts";
 
-export const TERMINAL_SERVER = "jarvis_terminal";
-export const RUN_COMMAND = "run_command";
+const TERMINAL_SERVER = "jarvis_terminal";
+const RUN_COMMAND = "run_command";
 
 /** Espera por omisión y tope de `timeoutSec` (los valores de `timeouts.ts`; la configuración los cambia con `waitSec`). */
-export const DEFAULT_WAIT_SEC = TIMEOUT_DEFAULTS.runCommandDefaultWaitSec;
-export const MAX_WAIT_SEC = TIMEOUT_DEFAULTS.runCommandMaxWaitSec;
+const DEFAULT_WAIT_SEC = TIMEOUT_DEFAULTS.runCommandDefaultWaitSec;
+const MAX_WAIT_SEC = TIMEOUT_DEFAULTS.runCommandMaxWaitSec;
 /** Procesos vivos a la vez. */
-export const MAX_LIVE_PROCESSES = 8;
+const MAX_LIVE_PROCESSES = 8;
 /**
  * Largo máximo de `command`: el mismo tope con el que el manifiesto lo registra en el contexto (`argCaps`). Un comando más largo lo ejecutaría entero pero
  * el usuario (al confirmar), la revisión (D3) y el verificador solo verían el principio.
  */
 export const MAX_COMMAND_CHARS = argCapsOf(TERMINAL_SERVER, RUN_COMMAND).command ?? 1000;
-export const MAX_INPUT_CHARS = 1000;
+const MAX_INPUT_CHARS = 1000;
 /** Cuánto se espera a que cierren los flujos de un proceso que ya terminó (un hijo puede heredarlos). */
 const CLOSE_GRACE_MS = 300;
 /** Veces que se intenta escribir el archivo de ayudas antes de seguir sin ellas el resto de la sesión. */
@@ -148,9 +148,6 @@ const RUN_COMMAND_TOOL: MCPTool = {
 
 const TOOLS: readonly MCPTool[] = [RUN_COMMAND_TOOL];
 
-const fail = (message: string, data: Record<string, unknown> = {}): MCPCallResult =>
-  toolResult({ text: message, raw: message, data: { state: "error", truncated: false, ...data }, isError: true });
-
 const seconds = (ms: number): string => `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`;
 
 /** Dónde empieza una secuencia de escape que quedó sin terminar al final de `text`, o `-1`. */
@@ -163,7 +160,7 @@ function openEscapeAt(text: string): number {
   return at;
 }
 
-export interface TerminalOptions {
+interface TerminalOptions {
   /** Directorio de trabajo de un comando nuevo sin `cwd`. Por defecto, la carpeta personal del usuario. */
   readonly defaultCwd?: string;
   /** Solo para pruebas: otra plataforma. */
@@ -287,7 +284,7 @@ export class TerminalProvider implements ToolProvider {
 
     const wait = this.getWaitSec();
     const requested = Math.min(Math.max(Math.round(typeof timeoutSec === "number" ? timeoutSec : wait.default), 1), Math.max(wait.max, 1)) * 1000;
-    const ceiling = options.timeoutMs === undefined ? Infinity : Math.max(options.timeoutMs - SAFETY_MARGIN_MS, 1000);
+    const ceiling = options.timeoutMs === undefined ? Infinity : Math.min(options.timeoutMs, Math.max(options.timeoutMs - SAFETY_MARGIN_MS, 1000));
     const waitMs = Math.min(requested, ceiling);
 
     if (command !== undefined && command.trim() !== "") {
@@ -420,7 +417,10 @@ export class TerminalProvider implements ToolProvider {
         settled = true;
         clearTimeout(timer);
         const pid = child.pid;
-        if (pid === undefined) return reject(new Error("el sistema no devolvió el id del proceso."));
+        if (pid === undefined) {
+          child.kill();
+          return reject(new Error("el sistema no devolvió el id del proceso."));
+        }
         const stream = (): StreamState => ({ decoder: new OutputDecoder(fallback), lines: new LineAssembler(), escapeCarry: "", currentSeq: 0, completedSeq: 0, chars: 0 });
         const now = Date.now();
         const t: Tracked = {

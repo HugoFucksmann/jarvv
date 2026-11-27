@@ -30,7 +30,7 @@ import type { TaskRuntime } from "./runtime.ts";
 
 export type ModelFailureKind = "cancelled" | "unavailable" | "overflow" | "invalid";
 
-export type ModelResult<T> =
+type ModelResult<T> =
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly failure: ModelFailureKind; readonly error: unknown };
 
@@ -49,7 +49,7 @@ export function pauseOf(env: EngineEnv, model: "llm" | "decision"): ModelPauseCo
 }
 
 /** Clasifica el error de una consulta a un modelo; `null` si no es de ninguna de las clases conocidas (defecto del código). */
-export function classifyModelError(error: unknown): ModelFailureKind | null {
+function classifyModelError(error: unknown): ModelFailureKind | null {
   if (error instanceof RequestAbortedError) return "cancelled";
   if (error instanceof DecisionServiceUnavailableError || error instanceof LLMServiceUnavailableError) return "unavailable";
   if (error instanceof DecisionValidationError || error instanceof LLMValidationError) return error.overflow ? "overflow" : "invalid";
@@ -128,7 +128,7 @@ export async function queryModel<T>(call: () => Promise<T>, pause?: ModelPauseCo
 }
 
 /** Qué cierra la tarea (o la cancela) tras un fallo que no es recuperable dentro del paso. */
-export type FailureClosure = { readonly kind: "cancelled" } | { readonly kind: "close"; readonly stopReason: "unrecoverable" };
+type FailureClosure = { readonly kind: "cancelled" } | { readonly kind: "close"; readonly stopReason: "unrecoverable" };
 
 /**
  * Traduce un fallo a su cierre y, solo cuando el servicio no está disponible (o la respuesta sigue inválida tras repetir),

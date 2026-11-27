@@ -23,6 +23,7 @@
  * `user_cancelled`. Una denegación del Guard ya no cierra la tarea (falla, a lo sumo, el paso): `security_denied` queda solo para leer trazas anteriores.
  */
 
+import { BUDGET } from "../budget.ts";
 import { planClosure } from "../ctx/index.ts";
 import type { StopReason, TaskContext } from "../ctx/index.ts";
 import type { EngineDeps } from "../contracts.ts";
@@ -30,8 +31,10 @@ import { createEngineEnv } from "./env.ts";
 import type { EngineEnv } from "./env.ts";
 import { finalize } from "./finalize.ts";
 import { COMPLETION_INCOMPLETE_BELOW, confirmCompletion } from "./completion.ts";
+import { shadowCoverage } from "./coverageShadow.ts";
+import { dependentsOf } from "./dependencies.ts";
 import { escalationsExceeded, replansExhausted, stepsExhausted } from "./limits.ts";
-import type { Closing } from "./finalize.ts";
+import type { Closing, ClosingCause } from "./finalize.ts";
 import { classifyRequest, detectContinuation } from "./classify.ts";
 import { generatePending } from "./pending.ts";
 import { ReactiveList } from "./reactiveList.ts";
@@ -43,7 +46,7 @@ import type { TaskRuntime } from "./runtime.ts";
 import { runStep } from "./stepLoop.ts";
 
 const COMPLETED: Closing = { stopReason: null };
-const stop = (stopReason: StopReason): Closing => ({ stopReason });
+const stop = (stopReason: StopReason, cause?: ClosingCause): Closing => (cause === undefined ? { stopReason } : { stopReason, cause });
 const CANCELLED = stop("user_cancelled");
 
 /** Cierre de un plan que no quedó registrado: cancelación o servicio caído; una generación inválida es `unrecoverable`. */
@@ -77,10 +80,15 @@ async function runReactive(env: EngineEnv): Promise<Closing> {
   // La lista la mantiene el código (`reactiveList.ts`): el modelo la genera al empezar, el paso que termina bien quita su ítem, y solo se consulta al modelo tras un
   // fallo (reescribir el ítem) o al vaciarse (confirmar que no falta nada). Acá queda el flujo: qué consultar y cuándo cerrar.
   const list = new ReactiveList();
+  // Los requisitos de la solicitud: la primera lista que genera el modelo (una acción con la solicitud literal no tiene libro). El cierre los usa (`engine/requirements.ts`).
+  let requirements: readonly string[] | null = null;
+  let firstListSeen = false;
+  // Veces seguidas que la lista volvió idéntica al ítem fallido: el modelo repite lo mismo con la misma entrada, así que se vuelve a pedir con más temperatura antes de cerrar.
+  let identicalRewrites = 0;
 
   // Cierre con la lista vacía (inicio o confirmación D5): decide `canFinish()`.
   const finishEmpty = (closure: "completed" | "no_alternatives" | null): Closing =>
-    closure !== "completed" ? stop("no_alternatives") : COMPLETED;
+    closure !== "completed" ? stop("no_alternatives", "nothing_left") : COMPLETED;
 
   // D0: una consulta de decisión sobre la solicitud antes de `pending`. Charla: sin llamadas, la tarea cierra completada y la respuesta final contesta (hoy cuesta
   // dos consultas a `pending`). Una acción: la lista es la solicitud literal y el paso la recibe sin reescritura. Varias acciones, o una respuesta de D0 que no sirve (inválida o desborde): el flujo de siempre. Con el modelo de decisión no disponible rige la pausa (`queryModel`) y, agotada, la tarea cierra.
@@ -107,16 +115,32 @@ async function runReactive(env: EngineEnv): Promise<Closing> {
       // Lo que Decisión 5 dijo justo antes de esta consulta (si fue ella la que la provocó); se consume acá para que no valga en una consulta posterior.
       const completionBefore = env.state.lastCompletion;
       env.state.lastCompletion = null;
-      const next = await generatePending(env, list.pending);
+      const next = await generatePending(env, list.pending, identicalRewrites);
       switch (next.kind) {
         case "next":
           {
-            const transition = list.applyModelList(next.list, completionBefore !== null && completionBefore < COMPLETION_INCOMPLETE_BELOW);
-            if (transition !== "accepted" && transition !== "identical_retry") return stop("no_alternatives");
+            let transition = list.applyModelList(next.list, completionBefore !== null && completionBefore < COMPLETION_INCOMPLETE_BELOW);
+            // El modelo omitió el ítem fallido y siguió con los de atrás: si estos no lo necesitan, el ítem se difiere detrás de ellos en lugar de cerrar la tarea.
+            if (transition === "skips_failed_item" && list.failedItem !== null && list.canDefer) {
+              const dependent = await dependentsOf(env, list.failedItem, list.laterItems);
+              if (runtime.cancelled) return CANCELLED;
+              if (dependent !== null && list.deferFailed(dependent)) transition = "accepted";
+            }
+            if (transition === "identical_rewrite" && identicalRewrites < BUDGET.maxListRewriteRetries) {
+              identicalRewrites++;
+              continue;
+            }
+            if (transition !== "accepted" && transition !== "identical_retry") return stop("no_alternatives", transition);
+            identicalRewrites = 0;
+            if (!firstListSeen) {
+              firstListSeen = true;
+              if (list.pending.length >= 2) requirements = [...list.pending];
+              await shadowCoverage(env, list.pending); // modo sombra: registra si la lista cubre el pedido, no actúa
+            }
           }
           break;
         case "done":
-          if (list.applyModelDone() === "rejected") return stop("no_alternatives");
+          if (list.applyModelDone() === "rejected") return stop("no_alternatives", "empty_list_rejected");
           if (list.isEmpty) return finishEmpty(next.closure);
           break;
         case "close":
@@ -135,10 +159,12 @@ async function runReactive(env: EngineEnv): Promise<Closing> {
         if (list.isEmpty) {
           // Hecho todo lo previsto: Decisión 5 dice si la solicitud está cumplida (cierra sin llamar al LLM)
           // y, si no lo asegura, se confirma con el LLM que no falta nada.
-          const completion = await confirmCompletion(env);
+          const completion = await confirmCompletion(env, requirements === null ? null : { requirements, canReopen: list.canReopen });
           if (completion.kind === "complete") return COMPLETED;
           if (completion.kind === "cancelled") return CANCELLED;
           if (completion.kind === "close") return stop(completion.stopReason);
+          // El libro de requisitos halló qué falta: esos pasos entran a la lista sin pasar por el modelo de pendientes.
+          if (completion.gaps !== undefined && list.reopenWith(completion.gaps)) continue;
           list.askModelToConfirm();
         }
         continue;
@@ -146,7 +172,7 @@ async function runReactive(env: EngineEnv): Promise<Closing> {
       case "failed":
         // Una racha de pasos fallidos sin ningún paso completado en el medio agota la recuperación (`BUDGET.maxEscalations`). Antes de eso, se reescribe el ítem; si el
         // modelo lo repite idéntico, se cierra (`applyModelList`).
-        if (escalationsExceeded(ctx)) return stop("no_alternatives");
+        if (escalationsExceeded(ctx)) return stop("no_alternatives", "failure_streak");
         await shadowRecovery(env, list.pending, outcome.cause); // modo sombra: registra qué haría `recovery`, no actúa
         list.failHead(outcome.cause);
         continue;

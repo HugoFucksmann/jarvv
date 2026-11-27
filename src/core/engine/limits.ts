@@ -23,7 +23,7 @@ import type { StepFailureCause } from "./outcomes.ts";
 
 // ───────────────────────── Catálogo de topes ─────────────────────────
 
-export type LimitScope = "task" | "step";
+type LimitScope = "task" | "step";
 
 /** Los topes de `BUDGET` que gobiernan el motor, con su alcance. El orden es el de `GET /limits`. */
 export const LIMIT_SCOPES = {
@@ -41,10 +41,9 @@ export const LIMIT_SCOPES = {
   maxDeniedPerStep: "step",
   maxQuestionsPerStep: "step",
   maxProcessPromptsPerStep: "step",
-  maxNotAccomplishedPerRoute: "step",
 } as const satisfies Record<string, LimitScope>;
 
-export type LimitId = keyof typeof LIMIT_SCOPES;
+type LimitId = keyof typeof LIMIT_SCOPES;
 
 /** Valor de cada tope, para `GET /limits` (la interfaz muestra el progreso contra estos números). */
 export function limitValues(): Record<LimitId, number> {
@@ -90,7 +89,7 @@ export function toolErrorSignature(summary: string | null): string {
 }
 
 /** Lo que se cuenta de las llamadas de un paso. */
-export interface StepCounters {
+interface StepCounters {
   /** Llegaron a la herramienta. */
   readonly executions: number;
   /** Todas las registradas salvo `user_rejected`. */
@@ -163,7 +162,7 @@ const STEP_RULES: readonly StepRule[] = [
   { limit: "maxAttemptsPerStep", counter: "attempts", cause: "call_cap", askFirst: true },
 ];
 
-export interface StepLimitHit {
+interface StepLimitHit {
   readonly limit: LimitId;
   readonly cause: StepFailureCause;
   readonly askFirst: boolean;
@@ -176,10 +175,4 @@ export function checkStepLimits(ctx: TaskContext, stepId: string): StepLimitHit 
     if (counters[rule.counter] >= BUDGET[rule.limit]) return { limit: rule.limit, cause: rule.cause, askFirst: rule.askFirst };
   }
   return null;
-}
-
-/** Rechazos `not_accomplished` de Decisión 4 que agotan una ruta en un paso: deja de ofrecerse a Decisión 1 en ese paso. */
-export function routeExhausted(ctx: TaskContext, stepId: string, route: string): boolean {
-  const rejected = ctx.find("calls", { stepId, route }).filter((c) => c.verdict === "rejected" && c.reason === "not_accomplished").length;
-  return rejected >= BUDGET.maxNotAccomplishedPerRoute;
 }

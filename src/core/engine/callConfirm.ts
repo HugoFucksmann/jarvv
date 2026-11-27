@@ -30,7 +30,7 @@ const reject = (status: Rejection["status"], summary: string | null = null): Rej
 const REPEATED_REJECTION_NOTE = "The user already rejected this exact operation in this task. Do not ask again: use a different approach or say what could not be done.";
 
 /** Motivo fijo de un `args_invalid` de la revisión (D3): el modelo de decisión solo elige la opción, no dice qué argumento falla. */
-export const REVIEW_ARGS_INVALID_NOTE =
+const REVIEW_ARGS_INVALID_NOTE =
   "The review found a wrong argument: a value is invented, copied incorrectly, or contradicts the task or the data read. Write the arguments again from the task and the data.";
 
 /** Fase 7. Confirmación del usuario, si la autorización la exige. */
@@ -83,7 +83,7 @@ export async function reviewIfNeeded(env: EngineEnv, call: PreparedCall, auth: A
   const applies = call.kind === "write" ? !auth.askUser && !auth.userAuthored && auth.tier !== "green" : deps.reviewReads?.() === true;
   if (!applies) return PASS;
 
-  const reviewView = ctx.view.forReview(reviewViewOptions());
+  const reviewView = ctx.view.forReview(reviewViewOptions(call.readIds));
   const review = await queryModel(() => env.decision.reviewArgs(reviewInput(reviewView, call.route, call.tool, call.recorded), runtime.signal), pauseOf(env, "decision"));
   if (!review.ok) return { kind: "stop", outcome: fromFailure(env, call.stepId, review.failure, review.error) };
   if (runtime.cancelled || ctx.isClosed()) return STOP_CANCELLED;

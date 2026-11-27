@@ -11,7 +11,7 @@ import path from "node:path";
 import type { UserEnvironment } from "../../core/environment.ts";
 import { BUDGET } from "../../core/budget.ts";
 import { omissionMarker } from "../../core/text.ts";
-import { toolResult } from "../../core/tools/result.ts";
+import { toolResult, toolFail as fail } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
 import {
@@ -41,7 +41,7 @@ type EntryTypeFilter = (typeof VALID_TYPES)[number];
 
 const YIELD_EVERY_ENTRIES = 64;
 
-export interface ListFolderDeps {
+interface ListFolderDeps {
   readonly getAllowedDirectories: () => readonly string[];
   readonly getEnvironment: () => Promise<UserEnvironment>;
   readonly now: () => number;
@@ -67,9 +67,6 @@ interface FolderEntry {
   readonly mtimeMs: number;
   readonly ext: string;
 }
-
-const fail = (message: string, data: Record<string, unknown> = {}): MCPCallResult =>
-  toolResult({ text: message, raw: message, data: { state: "error", truncated: false, ...data }, isError: true });
 
 function parseArgs(raw: Record<string, unknown>): { readonly ok: true; readonly args: ParsedListArgs } | { readonly ok: false; readonly message: string } {
   if (typeof raw.path !== "string" || raw.path.trim() === "") {
@@ -300,8 +297,8 @@ export async function runListFolder(
   const deadline = deps.now() + effectiveTimeoutMs(deps.defaultTimeoutMs, options.timeoutMs);
 
   const visitedDirs = new Set<string>([realRoot]);
-  const queue: Array<{ readonly dirPath: string; readonly relPrefix: string; readonly depth: number }> = [
-    { dirPath: targetPath, relPrefix: "", depth: 1 },
+  const queue: Array<{ readonly dirPath: string; readonly realPath: string; readonly relPrefix: string; readonly depth: number }> = [
+    { dirPath: targetPath, realPath: realRoot, relPrefix: "", depth: 1 },
   ];
 
   const entries: FolderEntry[] = [];
@@ -329,6 +326,9 @@ export async function runListFolder(
 
     for (const dirent of dirEntries) {
       if (options.signal?.aborted) return cancelledResult();
+      if (deps.now() >= deadline) {
+        return fail(`Listing folder '${targetPath}' exceeded the time limit.`, { reason: "timeout" });
+      }
       seen++;
       if (seen % YIELD_EVERY_ENTRIES === 0) await yieldEventLoop();
 
@@ -351,11 +351,11 @@ export async function runListFolder(
       if (passesType && passesExt) entries.push({ name: dirent.name, relPath, isDir, size, mtimeMs, ext });
 
       if (isDir && current.depth < args.depth) {
-        if (realTarget === undefined) {
-          queue.push({ dirPath: fullPath, relPrefix: relPath, depth: current.depth + 1 });
-        } else if (!visitedDirs.has(realTarget)) {
-          visitedDirs.add(realTarget);
-          queue.push({ dirPath: fullPath, relPrefix: relPath, depth: current.depth + 1 });
+        // Toda carpeta (real o enlace) se registra por su ruta real: un enlace hacia una hermana ya recorrida no la cuenta dos veces.
+        const realPath = realTarget ?? path.join(current.realPath, dirent.name);
+        if (!visitedDirs.has(realPath)) {
+          visitedDirs.add(realPath);
+          queue.push({ dirPath: fullPath, realPath, relPrefix: relPath, depth: current.depth + 1 });
         }
       }
     }

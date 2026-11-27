@@ -21,7 +21,7 @@ import type {
 } from "../types/waiting.ts";
 import { newId } from "../utils.ts";
 
-export interface TaskRuntimeOptions {
+interface TaskRuntimeOptions {
   /** Se invoca cada vez que cambia la espera (`null` = ya no se espera nada). Un fallo del receptor no afecta al ejecutor. */
   readonly onChange?: (waiting: Waiting | null) => void;
   /** Se invoca cuando la tarea entra o sale de pausa por modelo no disponible. Un fallo del receptor no afecta al ejecutor. */

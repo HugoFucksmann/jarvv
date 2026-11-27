@@ -42,7 +42,7 @@ function processAnswers(ctx: TaskContext, stepId: string): { readonly pid: strin
 }
 
 /** Preguntas de procesos (`waiting_input`) ya hechas en el paso. */
-export function processPromptsAsked(ctx: TaskContext, stepId: string): number {
+function processPromptsAsked(ctx: TaskContext, stepId: string): number {
   return processAnswers(ctx, stepId).length;
 }
 

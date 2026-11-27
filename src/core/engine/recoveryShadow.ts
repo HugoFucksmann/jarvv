@@ -24,7 +24,7 @@ import { recoveryRule } from "./recoveryRules.ts";
 import type { RecoveryRuleInput } from "./recoveryRules.ts";
 
 /** Lo que se registra de una evaluación (el `output` del evento, serializado). */
-export interface RecoveryShadowRecord {
+interface RecoveryShadowRecord {
   readonly cause: StepFailureCause;
   /** Pasos fallidos seguidos desde el último completado (incluye el que acaba de fallar). */
   readonly attempts: number;

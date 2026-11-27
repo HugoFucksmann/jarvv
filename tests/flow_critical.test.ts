@@ -389,10 +389,10 @@ test("RC-21 + maxCallsPerStep: rerun bloqueado hasta escritura intermedia", asyn
   }
 });
 
-test("stepLoop: maxCallsPerStep pregunta al usuario antes de fallar (askFirst) y routeExhausted descarta ruta agotada o hace fallback si todas se agotan", async () => {
+test("stepLoop: maxCallsPerStep pregunta al usuario antes de fallar (askFirst) y las rutas ofrecidas no se recortan por rechazos de la verificación", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-limits-"));
   try {
-    // 1) Ruta files se agota tras maxNotAccomplishedPerRoute=2 rechazos not_accomplished y pasa a ofrecer only terminal; si solo hay files y se agota, hace fallback y luego pregunta al llegar a maxCallsPerStep=6.
+    // 1) Aunque la verificación rechace una ruta como not_accomplished, Decisión 1 la sigue viendo con las demás: el paso lo corta maxVerifyRejectionsPerStep, no el catálogo.
     const seenRoutes: string[][] = [];
     let askTriggered = 0;
     let callN = 0;
@@ -448,9 +448,9 @@ test("stepLoop: maxCallsPerStep pregunta al usuario antes de fallar (askFirst) y
       disk: FAKE_DISK,
     };
 
-    // Fuerza maxVerifyRejectionsPerStep=2 por paso; como ambas rutas fallan en el mismo paso (files x2 -> routeExhausted -> terminal), verifica transición files -> terminal
     await runTask(ctx, new TaskRuntime(), deps);
-    assert.ok(seenRoutes.some((r) => r.includes("files_read") && r.includes("terminal")));
+    assert.ok(seenRoutes.length > 1);
+    assert.ok(seenRoutes.every((r) => r.includes("files_read") && r.includes("terminal")), "ninguna vuelta recorta rutas");
 
     // 2) maxCallsPerStep (6) con askFirst=true: 6 llamadas waiting_input ejecutan sin contar como rejected -> runStep pregunta al usuario y luego falla con call_cap
     const ctxCap = create.context(

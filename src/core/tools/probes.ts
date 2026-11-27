@@ -26,13 +26,13 @@ export interface ProbeCall {
   readonly step: string;
 }
 
-export interface ProbeQuestion {
+interface ProbeQuestion {
   readonly instructions: string;
   readonly criteria: { readonly true: string; readonly false: string };
 }
 
 /** Una consulta `noul`. `badWhenTrue`: la afirmativa es lo malo. `gate`: si la respuesta es < `GATE_MIN`, la sonda no aplica a este caso y pasa. */
-export interface ProbeStage {
+interface ProbeStage {
   readonly state: string;
   readonly question: ProbeQuestion;
   readonly badWhenTrue?: boolean;

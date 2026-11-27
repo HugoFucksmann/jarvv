@@ -16,9 +16,7 @@ import { omissionMarker } from "../../core/text.ts";
 
 // ───────────────────────── Limpieza ─────────────────────────
 
-// eslint-disable-next-line no-control-regex
 const ANSI = /\u001b(?:\[[0-?]*[ -/]*[@-~]|\][^\u0007\u001b]*(?:\u0007|\u001b\\)|[@-Z\\-_])/g;
-// eslint-disable-next-line no-control-regex
 const CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
 
 export const stripAnsi = (text: string): string => text.replace(ANSI, "");
@@ -118,7 +116,7 @@ function incompleteTail(bytes: Uint8Array): number {
 }
 
 /** Bytes → texto: UTF-8 si lo es; si no, cada línea inválida con `fallback` (las líneas válidas siguen en UTF-8). */
-export function decodeBytes(bytes: Uint8Array, fallback: BytesToText): string {
+function decodeBytes(bytes: Uint8Array, fallback: BytesToText): string {
   if (bytes.length === 0) return "";
   if (isUtf8(bytes)) return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString("utf8");
   let out = "";

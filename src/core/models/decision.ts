@@ -13,10 +13,12 @@
  * - Transporte (reintento único en red/503, timeout, cancelación): models/transport.ts.
  */
 
+import { upperLevelsMass } from "../types/decision.ts";
 import type {
   DecisionAnswer,
   DecisionAnswerChoice,
   DecisionAnswerNoul,
+  DecisionAnswerScore,
   DecisionQuestion,
   DecisionResponse,
   TimeSpan,
@@ -43,12 +45,21 @@ import type {
   VerifyDecisionInput,
   RecoveryDecision,
   RecoveryDecisionInput,
+  CoverageDecision,
+  CoverageDecisionInput,
+  DependencyDecision,
+  DependencyDecisionInput,
+  ReadSelectionDecision,
+  ReadSelectionInput,
+  RequirementsDecision,
+  RequirementsDecisionInput,
+  RequirementVerdict,
 } from "../contracts.ts";
 import { ARGS_REVIEWS, COMPLETION_KEY, RECOVERY_ACTIONS, RECOVERY_KEY, VERIFY_CHECKS } from "../contracts.ts";
 import { firstQueryKind } from "../types/firstQuery.ts";
 import { isExecutableRoute } from "../types/routes.ts";
 import type { ConfigSource, JarvisConfig } from "../config.ts";
-import { DECISION_PROMPTS } from "./prompts.ts";
+import { DECISION_PROMPTS, DELIVERED_LEVELS } from "./prompts.ts";
 import {
   estimateTokens,
   postJson,
@@ -76,6 +87,12 @@ export function buildDecisionRequest(
 function choiceAnswer(response: DecisionResponse, key: string): DecisionAnswerChoice {
   const answer = response.answers[key];
   if (!("choice" in answer)) throw new DecisionValidationError(`Respuesta '${key}' inesperada: se esperaba tipo 'choice'.`);
+  return answer;
+}
+
+function scoreAnswer(response: DecisionResponse, key: string): DecisionAnswerScore {
+  const answer = response.answers[key];
+  if (!("score" in answer)) throw new DecisionValidationError(`Respuesta '${key}' inesperada: se esperaba tipo 'score'.`);
   return answer;
 }
 
@@ -330,6 +347,86 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
   }
 
   /**
+   * Libro de requisitos (cierre): por cada requisito de la solicitud, una pregunta de cada formato, en una consulta por tipo de evidencia (`buildRequirementsCheck`): `t`
+   * (`choice`: si pide buscar información o es una acción sobre la computadora), `g` (`noul`: si las lecturas traen información real de él) y `d` (`score`: cuánto de él
+   * quedó en el entregable; solo si lo hay). Las consultas van en paralelo. Devuelve las probabilidades sin umbral: qué es un hueco lo decide `engine/requirements.ts`.
+   */
+  async checkRequirements(input: RequirementsDecisionInput, signal?: AbortSignal): Promise<RequirementsDecision> {
+    const built = this.prompts.buildRequirementsCheck(input);
+    const startedAt = Date.now();
+    const [types, reads, delivered] = await Promise.all([
+      this.systemOne(built.types.state, built.types.questions, { signal }),
+      this.systemOne(built.reads.state, built.reads.questions, { signal }),
+      built.deliverable === null ? Promise.resolve(null) : this.systemOne(built.deliverable.state, built.deliverable.questions, { signal }),
+    ]);
+    const responses = [types, reads, ...(delivered === null ? [] : [delivered])];
+    const raw = {
+      rawInput: responses.map((r) => r.rawInput).join("\n"),
+      rawOutput: responses.map((r) => r.rawOutput).join("\n"),
+      timing: { startedAt, durationMs: Date.now() - startedAt },
+    };
+    try {
+      const items: RequirementVerdict[] = input.requirements.map((_, i) => {
+        const type = choiceAnswer(types, `t${i}`);
+        const gathered = noulAnswer(reads, `g${i}`).noul;
+        const upper = delivered === null ? null : upperLevelsMass(scoreAnswer(delivered, `d${i}`), DELIVERED_LEVELS.length);
+        return { info: type.probabilities.info ?? (type.choice === "info" ? 1 : 0), gathered, delivered: upper };
+      });
+      return { items, ...raw };
+    } catch (err) {
+      withRaw(err, raw);
+    }
+  }
+
+  /**
+   * Dependencias entre ítems de la lista: una pregunta `noul` por cada ítem de atrás del fallido (`b{i}`), en una sola consulta. Devuelve las probabilidades sin umbral:
+   * qué ítems quedan bloqueados lo decide `engine/dependencies.ts`.
+   */
+  async checkDependencies(input: DependencyDecisionInput, signal?: AbortSignal): Promise<DependencyDecision> {
+    const { state, questions } = this.prompts.buildDependencies(input);
+
+    const response = await this.systemOne(state, questions, { signal });
+    try {
+      const dependent = input.items.map((_, i) => noulAnswer(response, `b${i}`).noul);
+      return { dependent, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
+    } catch (err) {
+      withRaw(err, { rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing });
+    }
+  }
+
+  /**
+   * Elección de lecturas: una pregunta `noul` por lectura candidata (`r{i}`), en una sola consulta. Devuelve las probabilidades sin umbral: cuáles se muestran lo decide
+   * `engine/readSelection.ts`.
+   */
+  async selectReads(input: ReadSelectionInput, signal?: AbortSignal): Promise<ReadSelectionDecision> {
+    const { state, questions } = this.prompts.buildReadSelection(input);
+
+    const response = await this.systemOne(state, questions, { signal });
+    try {
+      const relevance = input.reads.map((_, i) => noulAnswer(response, `r${i}`).noul);
+      return { relevance, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
+    } catch (err) {
+      withRaw(err, { rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing });
+    }
+  }
+
+  /**
+   * Cobertura de la primera lista de pendientes (modo sombra): una pregunta `noul` (`covers`). Devuelve la probabilidad sin umbral; hoy solo se registra
+   * (`engine/coverageShadow.ts`).
+   */
+  async checkCoverage(input: CoverageDecisionInput, signal?: AbortSignal): Promise<CoverageDecision> {
+    const { state, questions } = this.prompts.buildCoverage(input);
+
+    const response = await this.systemOne(state, questions, { signal });
+    try {
+      const covers = noulAnswer(response, "covers").noul;
+      return { covers, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
+    } catch (err) {
+      withRaw(err, { rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing });
+    }
+  }
+
+  /**
    * Una pregunta de una sonda de verificación (`tools/probes.ts`): una consulta `noul` con el estado y los criterios que la sonda armó. Devuelve la probabilidad de la afirmativa;
    * qué es «bien» y el umbral los decide `engine/probes.ts`.
    */
@@ -425,6 +522,7 @@ export function parseAnswersObject(raw: string): Record<string, unknown> {
  * Valida la respuesta de UNA pregunta (según su tipo, por forma y sin exigir un campo `type`):
  * - choice: `choice` existe en `criteria`; `probabilities` se conserva solo con valores numéricos.
  * - noul: número en [0, 1].
+ * - score: `score` (nivel esperado, de 0 a niveles - 1) y `probabilities` por nivel (se conservan solo los valores numéricos).
  */
 export function validateAnswer(key: string, question: DecisionQuestion, ans: unknown): DecisionAnswer {
   if (!isRecord(ans)) {
@@ -449,6 +547,17 @@ export function validateAnswer(key: string, question: DecisionQuestion, ans: unk
         throw new DecisionValidationError(`'${key}': 'noul' debe ser un número en [0, 1].`);
       }
       return { noul };
+    }
+    case "score": {
+      const score = ans.score;
+      // `score` es el nivel esperado sobre la escala (de 0 a niveles - 1), no un valor normalizado.
+      if (typeof score !== "number" || !(score >= 0 && score <= question.criteria.length - 1 + 1e-6)) {
+        throw new DecisionValidationError(`'${key}': 'score' debe ser un número entre 0 y ${question.criteria.length - 1}.`);
+      }
+      const probabilities = isRecord(ans.probabilities)
+        ? Object.fromEntries(Object.entries(ans.probabilities).filter((e): e is [string, number] => typeof e[1] === "number"))
+        : {};
+      return { score, probabilities };
     }
     default: {
       const _exhaustive: never = question;

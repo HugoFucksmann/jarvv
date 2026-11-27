@@ -174,7 +174,7 @@ export function buildScript(command: string): string {
 const base64Block = (code: string): string =>
   `[scriptblock]::Create([Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('${Buffer.from(code, "utf16le").toString("base64")}')))`;
 
-export interface CommandLineOptions {
+interface CommandLineOptions {
   /** Cargar las ayudas del archivo que nombra `HELPERS_ENV` (por defecto, sí). Si no se pueden cargar, el proceso sale con `HELPERS_UNAVAILABLE_EXIT` sin correr el comando. */
   readonly helpers?: boolean;
 }

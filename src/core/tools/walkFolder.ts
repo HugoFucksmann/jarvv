@@ -22,7 +22,7 @@ import {
 
 const YIELD_EVERY_ENTRIES = 64;
 
-export type WalkStop = "time" | "entries";
+type WalkStop = "time" | "entries";
 
 export interface WalkOptions {
   /** Carpeta de partida, tal como se muestra al usuario. */
@@ -43,7 +43,7 @@ export interface WalkOptions {
   readonly statFiles?: boolean;
 }
 
-export interface WalkState {
+interface WalkState {
   /** Entradas revisadas (las que se omiten por nombre oculto también cuentan). */
   seen: number;
   /** Carpetas ilegibles y entradas que no se pudieron resolver o que salen de la raíz. */
@@ -67,7 +67,7 @@ export interface WalkEntry {
   readonly realPath: string;
 }
 
-export type Settled<T> =
+type Settled<T> =
   | { readonly status: "ok"; readonly value: T }
   | { readonly status: "failed" }
   | { readonly status: "aborted" };

@@ -31,7 +31,7 @@ import {
   pathFailureData,
   tempSuffix,
 } from "../../core/tools/filePaths.ts";
-import { cancelledResult, toolResult } from "../../core/tools/result.ts";
+import { cancelledResult, toolResult, toolFail as fail } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
 
@@ -48,7 +48,7 @@ const YIELD_EVERY_ENTRIES = 64;
 const VALID_ACTIONS = ["compress", "extract"] as const;
 type ArchiveAction = (typeof VALID_ACTIONS)[number];
 
-export interface ArchiveFilesDeps {
+interface ArchiveFilesDeps {
   readonly getAllowedDirectories: () => readonly string[];
   readonly getEnvironment: () => Promise<UserEnvironment>;
   readonly now: () => number;
@@ -57,9 +57,6 @@ export interface ArchiveFilesDeps {
   readonly maxInputBytes?: number;
   readonly maxExtractBytes?: number;
 }
-
-const fail = (message: string, data: Record<string, unknown> = {}): MCPCallResult =>
-  toolResult({ text: message, raw: message, data: { state: "error", truncated: false, ...data }, isError: true });
 
 // ───────────────────────── CRC32 & DOS Date/Time ─────────────────────────
 

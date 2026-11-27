@@ -6,7 +6,7 @@
  */
 
 import type { ToolCallOptions, ToolProvider } from "../../core/tools/provider.ts";
-import { toolResult } from "../../core/tools/result.ts";
+import { toolFail as fail } from "../../core/tools/result.ts";
 import type { MCPCallResult, MCPTool } from "../../core/types.ts";
 import {
   DEFAULT_MEDIA_CONTROL_TIMEOUT_MS,
@@ -24,9 +24,9 @@ import {
   type PlayMediaDriver,
 } from "./playMedia.ts";
 
-export const MULTIMEDIA_SERVER = "jarvis_multimedia";
-export const PLAY_MEDIA = "play_media";
-export const MEDIA_CONTROL = "media_control";
+const MULTIMEDIA_SERVER = "jarvis_multimedia";
+const PLAY_MEDIA = "play_media";
+const MEDIA_CONTROL = "media_control";
 
 export type { MediaAction, MediaControlDriver, NowPlayingInfo } from "./mediaControl.ts";
 export type { MediaPlatform, MediaType, PlayMediaDriver, PlayMediaRequest } from "./playMedia.ts";
@@ -84,10 +84,7 @@ const MEDIA_CONTROL_TOOL: MCPTool = {
 
 const TOOLS: readonly MCPTool[] = [PLAY_MEDIA_TOOL, MEDIA_CONTROL_TOOL];
 
-const fail = (message: string): MCPCallResult =>
-  toolResult({ text: message, raw: message, data: { state: "error", truncated: false }, isError: true });
-
-export interface MultimediaProviderOptions {
+interface MultimediaProviderOptions {
   readonly playDriver?: PlayMediaDriver;
   readonly controlDriver?: MediaControlDriver;
   readonly platform?: NodeJS.Platform;

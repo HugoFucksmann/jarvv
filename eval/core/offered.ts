@@ -5,7 +5,7 @@
  * D1 ofrece siempre todas las rutas ejecutables y D2, todas las herramientas visibles de la ruta elegida (un grupo por ruta).
  * Se leen del catálogo (`SYSTEM_TOOL_MANIFEST`), así que si `src` agrega o quita una, el eval la ve sin tocar casos ni variantes.
  *
- * Producción además descarta rutas y herramientas en tiempo de ejecución (`availableRoutes`, lista negra, ruta agotada por D4):
+ * Producción además descarta rutas y herramientas en tiempo de ejecución (`availableRoutes` y lista negra):
  * es un parche que se revisará aparte y el eval no lo reproduce.
  */
 

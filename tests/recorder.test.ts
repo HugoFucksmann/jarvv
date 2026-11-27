@@ -113,3 +113,14 @@ test("readTraceFile devuelve full.json.gz descomprimido, con las entradas y sali
   assert.deepEqual(full.models.map((m) => [m.input, m.output]), [["prompt largo", "respuesta"]]);
   assert.equal(readTraceFile(path.join(root, "traces"), "otra", "full"), null);
 });
+
+test("la causa del cierre que informa el motor sale en el resumen y en el índice", async () => {
+  const { root, traces, recorder } = setup();
+  recorder.sink.closing?.({ cause: "identical_rewrite" });
+  await recorder.finish();
+  const folder = fs.readdirSync(traces).find((n) => n !== "index.jsonl")!;
+  const summary = fs.readFileSync(path.join(traces, folder, "summary.md"), "utf8");
+  assert.match(summary, /\([a-z_]+: identical_rewrite\)/);
+  assert.equal((JSON.parse(lines(path.join(traces, "index.jsonl"))[0]) as { closeCause: string }).closeCause, "identical_rewrite");
+  fs.rmSync(root, { recursive: true, force: true });
+});

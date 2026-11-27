@@ -57,7 +57,7 @@ const ALLOWED_STEP_TRANSITIONS: { readonly [S in StepState]: readonly StepState[
 
 const OP_KEYS = ["op", "target", "value"];
 
-export interface PreparedBatch {
+interface PreparedBatch {
   /** Operaciones normalizadas (con `id` y `at` asignados), congeladas. */
   readonly ops: NormalizedOp[];
   /** Ids creados por el lote, en el orden de las operaciones `add`. */

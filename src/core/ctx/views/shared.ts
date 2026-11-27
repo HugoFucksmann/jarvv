@@ -17,7 +17,7 @@ import {
 } from "../derive.ts";
 import { currentOf } from "../query.ts";
 import type { Call, ContextData, RecalledSource, Step } from "../types.ts";
-import { ARGS_SHOWN_STATUSES, REASON_NOTES, STATE_NOTES, STOP_REASON_NOTES, statusNoteOf } from "./messages.ts";
+import { ARGS_SHOWN_STATUSES } from "./messages.ts";
 import type {
   CallView,
   EffectView,
@@ -53,8 +53,6 @@ export function lineViewOf(call: Call): CallView {
     status: call.status,
     verdict: call.verdict,
     reason: call.reason,
-    statusNote: statusNoteOf(call.status, call.kind),
-    reasonNote: call.reason === null ? null : REASON_NOTES[call.reason],
     failed: isFailure(call),
     args: null,
     summary: null,
@@ -134,7 +132,7 @@ export function effectIdsOf(data: ContextData): Set<string> {
 
 // ───────────────────────── Partes comunes de `forArgs` y `forReview` ─────────────────────────
 
-export interface TaskParts {
+interface TaskParts {
   /** Paso vigente en curso, si hay. */
   readonly step: Step | null;
   /** Reactivo: llamadas aprobadas no mostradas en otra sección. Deliberativo: vacío. */
@@ -160,7 +158,9 @@ export function taskPartsOf(data: ContextData, options: ReviewViewOptions, exclu
   };
   excluded.forEach(mark);
 
-  const reads = lastReadsWithData(data.calls, options.lastReads).filter((c) => !shown.has(c.id));
+  const chosen = options.readIds === undefined ? null : new Set(options.readIds);
+  const candidates = chosen === null ? lastReadsWithData(data.calls, options.lastReads) : lastReadsWithData(data.calls, data.calls.length).filter((c) => chosen.has(c.id));
+  const reads = candidates.filter((c) => !shown.has(c.id));
   reads.forEach(mark);
 
   // `done` (reactivo): líneas `L`.
@@ -191,9 +191,8 @@ export function stepsDoneViews(data: ContextData, shown: Set<string>): StepDoneV
   return out;
 }
 
-/** Estado de la tarea con su frase fija. */
+/** Estado de la tarea y su motivo de detención, tal cual. */
 export function taskViewOf(data: ContextData): TaskView {
   const { state, stopReason } = data.task;
-  const note = stopReason === null ? STATE_NOTES[state] : `${STATE_NOTES[state]} ${STOP_REASON_NOTES[stopReason]}`;
-  return { state, stopReason, note };
+  return { state, stopReason };
 }

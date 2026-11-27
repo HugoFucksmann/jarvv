@@ -10,9 +10,9 @@ import type { Context } from "grammy";
 import type { JarvisApi } from "./api.ts";
 import { parseSwitch } from "./commands.ts";
 
-export type SwitchKey = "autoMode" | "telegramVoice" | "voiceEnabled";
+type SwitchKey = "autoMode" | "telegramVoice" | "voiceEnabled";
 
-export interface SwitchSpec {
+interface SwitchSpec {
   readonly key: SwitchKey;
   readonly usage: string;
   readonly name: string;

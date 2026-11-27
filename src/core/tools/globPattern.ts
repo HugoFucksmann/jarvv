@@ -14,18 +14,18 @@ export interface PatternMatcher {
   readonly startsWithWildcard: boolean;
 }
 
-export type ParsedPattern =
+type ParsedPattern =
   | { readonly ok: true; readonly matchers: readonly PatternMatcher[] }
   | { readonly ok: false; readonly message: string };
 
 /** Máximo razonable de caracteres para evitar patrones degenerados. */
-export const MAX_PATTERN_CHARS = 300;
+const MAX_PATTERN_CHARS = 300;
 
 /**
  * Coincidencia literal de comodines (`*` = cero o más caracteres, `?` = un carácter).
  * Opera sobre puntos de código Unicode para manejar acentos y pares sustitutos sin regex.
  */
-export function globMatch(pattern: string, text: string): boolean {
+function globMatch(pattern: string, text: string): boolean {
   const p = Array.from(pattern);
   const t = Array.from(text);
   let pi = 0;

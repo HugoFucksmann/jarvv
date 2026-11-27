@@ -9,7 +9,7 @@
 import type { TaskContext } from "../ctx/index.ts";
 import { captureDecision, captureLlm } from "./capture.ts";
 import { NULL_SINK, type CaptureSink } from "../trace/sink.ts";
-import type { ContinuationInput, EngineDeps, EngineLLM, FirstQueryInput, IActionDecision, ProbeQuery } from "../contracts.ts";
+import type { ContinuationInput, CoverageDecisionInput, DependencyDecisionInput, EngineDeps, EngineLLM, FirstQueryInput, IActionDecision, ProbeQuery, ReadSelectionInput, RequirementsDecisionInput } from "../contracts.ts";
 import type { MemoryProvider } from "../../memory/index.ts";
 import type { TaskRuntime } from "./runtime.ts";
 import { createExecutionState } from "./state.ts";
@@ -50,7 +50,11 @@ export function memoizeDecision(decision: IActionDecision): IActionDecision {
       if (key !== null) cache.set(key, result);
       return result;
     };
-  const { probe, continuation, firstQuery } = {
+  const { probe, continuation, firstQuery, checkRequirements, checkDependencies, selectReads, checkCoverage } = {
+    checkCoverage: decision.checkCoverage?.bind(decision),
+    selectReads: decision.selectReads?.bind(decision),
+    checkRequirements: decision.checkRequirements?.bind(decision),
+    checkDependencies: decision.checkDependencies?.bind(decision),
     probe: decision.probe?.bind(decision),
     continuation: decision.continuation?.bind(decision),
     firstQuery: decision.firstQuery?.bind(decision),
@@ -61,6 +65,10 @@ export function memoizeDecision(decision: IActionDecision): IActionDecision {
     reviewArgs: memo("review", (i, s) => decision.reviewArgs(i, s)),
     verifyResult: memo("verify", (i, s) => decision.verifyResult(i, s)),
     checkCompletion: memo("completion", (i, s) => decision.checkCompletion(i, s)),
+    ...(checkRequirements === undefined ? {} : { checkRequirements: memo("requirements", (i: RequirementsDecisionInput, s?: AbortSignal) => checkRequirements(i, s)) }),
+    ...(checkDependencies === undefined ? {} : { checkDependencies: memo("dependencies", (i: DependencyDecisionInput, s?: AbortSignal) => checkDependencies(i, s)) }),
+    ...(selectReads === undefined ? {} : { selectReads: memo("reads", (i: ReadSelectionInput, s?: AbortSignal) => selectReads(i, s)) }),
+    ...(checkCoverage === undefined ? {} : { checkCoverage: memo("coverage", (i: CoverageDecisionInput, s?: AbortSignal) => checkCoverage(i, s)) }),
     ...(probe === undefined ? {} : { probe: memo("probe", (i: ProbeQuery, s?: AbortSignal) => probe(i, s)) }),
     ...(continuation === undefined ? {} : { continuation: memo("continuation", (i: ContinuationInput, s?: AbortSignal) => continuation(i, s)) }),
     ...(firstQuery === undefined ? {} : { firstQuery: memo("first_query", (i: FirstQueryInput, s?: AbortSignal) => firstQuery(i, s)) }),

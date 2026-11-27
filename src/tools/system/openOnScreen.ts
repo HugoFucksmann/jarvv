@@ -14,7 +14,7 @@ import { promisify } from "node:util";
 import type { UserEnvironment } from "../../core/environment.ts";
 import { isAnyAbsolute } from "../../core/policy/allowedDirs.ts";
 import { effectiveTimeoutMs, KNOWN_ALIASES, resolveExistingPath, pathFailureData } from "../../core/tools/filePaths.ts";
-import { cancelledResult, toolResult } from "../../core/tools/result.ts";
+import { cancelledResult, toolResult, toolFail as fail } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
 
@@ -33,7 +33,7 @@ export interface ScreenOpener {
   }): Promise<void>;
 }
 
-export interface OpenOnScreenDeps {
+interface OpenOnScreenDeps {
   readonly getAllowedDirectories: () => readonly string[];
   readonly getEnvironment: () => Promise<UserEnvironment>;
   readonly opener?: ScreenOpener;
@@ -41,12 +41,9 @@ export interface OpenOnScreenDeps {
   readonly defaultTimeoutMs?: number;
 }
 
-const fail = (message: string, data: Record<string, unknown> = {}): MCPCallResult =>
-  toolResult({ text: message, raw: message, data: { state: "error", truncated: false, ...data }, isError: true });
-
 const PS_OPEN_SCRIPT = "Start-Process -FilePath $env:JARVIS_OPEN_TARGET";
 
-export function createDefaultScreenOpener(
+function createDefaultScreenOpener(
   platform: NodeJS.Platform = process.platform,
   timeoutMs = DEFAULT_OPEN_TIMEOUT_MS,
 ): ScreenOpener {
@@ -66,7 +63,8 @@ export function createDefaultScreenOpener(
 }
 
 function inferKind(target: string, requested: OpenTargetType): ResolvedOpenKind {
-  if (requested !== "auto") return requested;
+  // `type: "app"` solo vale para un nombre de aplicación: si el valor parece URL o ruta se valida como tal (esquemas y carpetas permitidas).
+  if (requested !== "auto" && requested !== "app") return requested;
   if (/^[a-z][a-z0-9+.-]*:/i.test(target) && !/^[A-Za-z]:[\\/]/.test(target)) {
     return "url";
   }

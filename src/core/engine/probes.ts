@@ -14,14 +14,14 @@ import { probesOf, serverOf } from "../tools/manifest.ts";
 import { GATE_MIN, type Probe, type ProbeCall } from "../tools/probes.ts";
 import type { ExecutableRoute } from "../types/routes.ts";
 
-export type ProbesOutcome =
+type ProbesOutcome =
   | { readonly kind: "pass" }
   | { readonly kind: "fail"; readonly reason: VerdictReason; readonly probe: string }
   | { readonly kind: "close"; readonly stopReason: "unrecoverable" }
   | { readonly kind: "cancelled" };
 
 /** Lo que las sondas saben de la llamada: el pedido (reactivo) o la instrucción del paso (deliberativo), los argumentos y el resumen tal cual los guardó el motor. */
-export function probeCallOf(env: EngineEnv, call: Call): ProbeCall {
+function probeCallOf(env: EngineEnv, call: Call): ProbeCall {
   const { ctx } = env;
   const step = ctx.find("steps", { id: call.stepId })[0];
   const stepText = step?.instruction ?? ctx.task.request;
@@ -35,7 +35,7 @@ export function probeCallOf(env: EngineEnv, call: Call): ProbeCall {
 }
 
 /** Las sondas de la herramienta de la llamada que aplican a ella. */
-export function applicableProbes(call: Call, probeCall: ProbeCall): readonly Probe[] {
+function applicableProbes(call: Call, probeCall: ProbeCall): readonly Probe[] {
   let server: string;
   try {
     server = serverOf(call.route as ExecutableRoute);

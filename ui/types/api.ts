@@ -142,7 +142,7 @@ export interface WaitingPlan {
 
 export type ApprovalTier = "green" | "yellow" | "red";
 
-export interface ApprovalBlacklistInfo {
+interface ApprovalBlacklistInfo {
   id: string;
   level: "blocked" | "sensitive";
 }
@@ -178,7 +178,7 @@ export interface WaitingQuestion {
 
 export type Waiting = WaitingPlan | WaitingApproval | WaitingQuestion;
 
-export interface ModelPauseDto {
+interface ModelPauseDto {
   since: number;
   model: string;
 }
@@ -239,7 +239,7 @@ export interface DiscoveryResponse {
   error?: string;
 }
 
-export interface SseSnapshot {
+interface SseSnapshot {
   type: "snapshot";
   task: TaskDto | null;
   tasks: TaskSummary[];
@@ -247,7 +247,7 @@ export interface SseSnapshot {
   unavailableServers: UnavailableServers;
 }
 
-export interface SseCreated {
+interface SseCreated {
   type: "created";
   taskId: string;
   n: number;
@@ -260,7 +260,7 @@ export interface SseChangeOp {
   value: unknown;
 }
 
-export interface SseChange {
+interface SseChange {
   type: "change";
   taskId: string;
   n: number;
@@ -268,13 +268,13 @@ export interface SseChange {
   ops: SseChangeOp[];
 }
 
-export interface SseWaiting {
+interface SseWaiting {
   type: "waiting";
   taskId: string;
   waiting: Waiting | null;
 }
 
-export interface SsePaused {
+interface SsePaused {
   type: "paused";
   taskId: string;
   paused: ModelPauseDto | null;
@@ -320,7 +320,6 @@ export interface EngineLimits {
   maxEscalations: number;
   maxCallsPerStep: number;
   maxAttemptsPerStep: number;
-  maxNotAccomplishedPerRoute: number;
   maxRepeatsPerStep: number;
   maxReviewRejectionsPerStep: number;
   maxVerifyRejectionsPerStep: number;

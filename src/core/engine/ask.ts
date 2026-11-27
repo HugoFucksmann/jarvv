@@ -27,7 +27,7 @@ import { clipWithin, withLineCount } from "./args.ts";
 import type { EngineEnv } from "./env.ts";
 import { closeOnFailure, pauseOf, queryModel } from "./failures.ts";
 
-export type AskOutcome =
+type AskOutcome =
   | { readonly kind: "answered" }
   | { readonly kind: "close"; readonly stopReason: "unrecoverable" }
   | { readonly kind: "cancelled" };

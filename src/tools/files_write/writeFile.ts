@@ -18,7 +18,7 @@ import {
   inspectDestinationTarget,
   resolvePathTarget,
 } from "../../core/tools/filePaths.ts";
-import { cancelledResult, toolResult } from "../../core/tools/result.ts";
+import { cancelledResult, toolResult, toolFail as fail } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
 
@@ -60,7 +60,7 @@ export interface WriteFileDriver {
   write(ctx: WriteDriverContext): Promise<MCPCallResult>;
 }
 
-export interface WriteFileDeps {
+interface WriteFileDeps {
   readonly getAllowedDirectories: () => readonly string[];
   readonly getEnvironment: () => Promise<UserEnvironment>;
   readonly drivers?: readonly WriteFileDriver[];
@@ -73,9 +73,6 @@ interface ParsedWriteArgs {
   readonly createFolders: boolean;
   readonly encoding: "utf8" | "latin1";
 }
-
-const fail = (message: string, data: Record<string, unknown> = {}): MCPCallResult =>
-  toolResult({ text: message, raw: message, data: { state: "error", truncated: false, ...data }, isError: true });
 
 function parseArgs(
   raw: Record<string, unknown>,

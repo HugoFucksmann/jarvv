@@ -15,9 +15,10 @@ import { promisify } from "node:util";
 import { BUDGET } from "../../core/budget.ts";
 import { omissionMarker } from "../../core/text.ts";
 import { fitLinesToBudget, formatSize } from "../../core/tools/filePaths.ts";
-import { toolResult } from "../../core/tools/result.ts";
+import { toolResult, toolFail as fail } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage, isRecord } from "../../core/utils.ts";
+import { PS_UTF8_PREFIX } from "../psPrefix.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -37,18 +38,18 @@ export const SYSTEM_SECTIONS = [
   "ports",
   "datetime",
 ] as const;
-export type SystemSection = (typeof SYSTEM_SECTIONS)[number];
+type SystemSection = (typeof SYSTEM_SECTIONS)[number];
 
 export const SERVICE_STATUS_FILTERS = ["running", "stopped", "all"] as const;
-export type ServiceStatusFilter = (typeof SERVICE_STATUS_FILTERS)[number];
+type ServiceStatusFilter = (typeof SERVICE_STATUS_FILTERS)[number];
 
 export const PROCESS_SORT_FIELDS = ["cpu", "memory", "name"] as const;
-export type ProcessSortField = (typeof PROCESS_SORT_FIELDS)[number];
+type ProcessSortField = (typeof PROCESS_SORT_FIELDS)[number];
 
 export const PORT_PROTOCOLS = ["all", "tcp", "udp"] as const;
-export type PortProtocolFilter = (typeof PORT_PROTOCOLS)[number];
+type PortProtocolFilter = (typeof PORT_PROTOCOLS)[number];
 
-export const DEV_TOOLS_LIST = [
+const DEV_TOOLS_LIST = [
   "git",
   "node",
   "npm",
@@ -151,21 +152,17 @@ export interface SystemReader {
 }
 
 /** El plazo de las lecturas ya viene en el lector (`createDefaultSystemReader`): no hace falta repetirlo acá. */
-export interface SystemInfoDeps {
+interface SystemInfoDeps {
   readonly reader: SystemReader;
 }
 
 type UnknownValue = { readonly status: "unknown"; readonly reason: string };
-
-const fail = (message: string, data: Record<string, unknown> = {}): MCPCallResult =>
-  toolResult({ text: message, raw: message, data: { state: "error", truncated: false, ...data }, isError: true });
 
 const cancelledResult = (): MCPCallResult =>
   toolResult({ text: "status: cancelled", raw: "", data: { state: "cancelled", sections: {} } });
 
 const unknownValue = (reason: string): UnknownValue => ({ status: "unknown", reason });
 
-const PS_UTF8_PREFIX = "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)";
 
 const PS_GPUS_SCRIPT = [
   PS_UTF8_PREFIX,
@@ -279,10 +276,10 @@ function firstLine(text: string): string {
     .find((line) => line !== "") ?? "";
 }
 
-async function probeDevTool(tool: string, timeoutMs: number, signal?: AbortSignal): Promise<DevToolInfo> {
+async function probeDevTool(tool: string, timeoutMs: number, platform: NodeJS.Platform, signal?: AbortSignal): Promise<DevToolInfo> {
   const args = tool === "java" ? ["-version"] : tool === "go" ? ["version"] : ["--version"];
   // En Windows npm/code son `.cmd`: Node no los ejecuta sin shell, así que se pasan por cmd.exe (nombre y argumentos fijos, sin entrada del usuario).
-  const viaCmd = process.platform === "win32" && (tool === "npm" || tool === "code");
+  const viaCmd = platform === "win32" &&(tool === "npm" || tool === "code");
   try {
     const { stdout, stderr } = await execFileAsync(viaCmd ? "cmd.exe" : tool, viaCmd ? ["/d", "/s", "/c", `${tool} ${args.join(" ")}`] : args, {
       timeout: Math.min(timeoutMs, 3_000),
@@ -359,7 +356,7 @@ export function createDefaultSystemReader(
       return services;
     },
     async readDevTools(tools: readonly string[], signal?: AbortSignal): Promise<readonly DevToolInfo[]> {
-      return Promise.all(tools.map((tool) => probeDevTool(tool, timeoutMs, signal)));
+      return Promise.all(tools.map((tool) => probeDevTool(tool, timeoutMs, platform, signal)));
     },
     async readNetwork(signal?: AbortSignal): Promise<NetworkInfo> {
       const interfaces = collectNodeNetworkInterfaces();

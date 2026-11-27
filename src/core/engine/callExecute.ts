@@ -2,7 +2,7 @@
  * JARVIS Core — Ejecución de una llamada ya autorizada (`runCall`, fases 9 a 12).
  *
  * Recibe la llamada preparada (`PreparedCall`: argumentos y huella ya calculados, la política ya aplicada) y la lleva hasta el final: despacho a la herramienta
- * compitiendo contra la cancelación → procesar el resultado → guardar la ref si hace falta → registrar la llamada (con el hecho `process`) → verificar.
+ * compitiendo contra la cancelación → procesar el resultado → guardar la ref si hace falta → registrar la llamada (con el hecho `process` y los hechos de los artefactos que dejó) → verificar.
  *
  * No toma ninguna decisión de autorización: Guard, lista negra, niveles, confirmación y revisión ocurren antes (`callRunner.ts`). Tampoco cierra la tarea:
  * devuelve un `CallOutcome` y quien llama decide.
@@ -16,6 +16,7 @@ import { timeoutOf } from "../tools/manifest.ts";
 import { createToolHost } from "../tools/host.ts";
 import type { ToolCallOptions } from "../tools/provider.ts";
 import { errorMessage } from "../utils.ts";
+import { artifactFactOps } from "./artifacts.ts";
 import { callLabel } from "./args.ts";
 import { captureCallTool } from "./capture.ts";
 import type { EngineEnv } from "./env.ts";
@@ -151,8 +152,10 @@ export async function executeAndRecord(env: EngineEnv, call: PreparedCall): Prom
   if (ctx.isClosed()) return CANCELLED;
 
   const factOps = processFactOps(ctx, stepId, policy, processed);
+  // Lo que la escritura dejó en el disco, visto por el código: es lo que los modelos ven del resultado (`engine/artifacts.ts`).
+  const artifactOps = processed.status === "ok" ? artifactFactOps(env, call) : [];
   const errorOps: Op[] = vaultFailed ? [{ op: "add", target: "errors", value: { stepId, kind: "service_unavailable" } }] : [];
-  const callId = recordCall(ctx, call, processed.status, processed.summary, ref, [...errorOps, ...factOps]);
+  const callId = recordCall(ctx, call, processed.status, processed.summary, ref, [...errorOps, ...factOps, ...artifactOps]);
   if (vaultFailed) return { kind: "close", stopReason: "unrecoverable", callId };
 
   // 12. Verificar (segundo `apply`: `verdict` y `reason` juntos).

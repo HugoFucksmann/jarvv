@@ -14,7 +14,7 @@ const BLOCK_LABELS =
  * Reduce un texto externo a una sola línea y neutraliza lo que podría confundirse con la estructura del prompt:
  * `<obs>` y las etiquetas de bloque (`LOG:`, `FACTS:`…). Recorta a `maxLen` terminando en `...`.
  */
-export function sanitizeForMemory(text: string, maxLen = 120): string {
+function sanitizeForMemory(text: string, maxLen = 120): string {
     if (!text) return "";
     let clean = text
         .replace(/[\r\n\t]+/g, " ")
@@ -66,7 +66,7 @@ export function clipAtWord(text: string, n: number): string {
 // Las usa `src/core/result/`.
 
 /** Resultado de un recorte: el texto y si hubo omisión. */
-export interface ClippedText {
+interface ClippedText {
     text: string;
     clipped: boolean;
 }

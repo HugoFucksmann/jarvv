@@ -11,7 +11,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-export type AllowedDirResult =
+type AllowedDirResult =
   | { readonly allowed: true; readonly canonical: string }
   | { readonly allowed: false; readonly reason: "outside" | "unresolvable"; readonly canonical?: string };
 
@@ -34,7 +34,7 @@ export function isWinPath(p: string): boolean {
 }
 
 /** ¿Tiene forma de ruta absoluta POSIX (`/ruta`) sin ser UNC? */
-export function isPosixPath(p: string): boolean {
+function isPosixPath(p: string): boolean {
   const s = stripExtendedPrefix(p);
   return s.startsWith("/") && !/^\/\/[^/]+\/[^/]+/.test(s);
 }
@@ -51,7 +51,7 @@ const realpathNative = (p: string): string =>
  * Resuelve `target` con `realpathSync`, soportando que las hojas aún no existan (resuelve el ancestro más profundo
  * existente y concatena el sufijo) y enlaces simbólicos rotos (`lstatSync` + `readlinkSync`).
  */
-export function resolveWithRealpathSync(target: string, depth = 0): string {
+function resolveWithRealpathSync(target: string, depth = 0): string {
   const normalized = path.normalize(target);
   const parts: string[] = [];
   let cur = normalized;

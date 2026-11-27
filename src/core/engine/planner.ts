@@ -27,7 +27,7 @@ import type { EngineEnv } from "./env.ts";
 import { closeOnFailure, pauseOf, queryModel } from "./failures.ts";
 import type { PlanApprovalOutcome } from "../types/waiting.ts";
 
-export type PlanRequest =
+type PlanRequest =
   | { readonly kind: "initial" }
   | { readonly kind: "user_feedback"; readonly feedback: string }
   | { readonly kind: "step_failure" };

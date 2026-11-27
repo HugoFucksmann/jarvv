@@ -6,7 +6,7 @@
 
 import type { ContextData, SectionName } from "./types.ts";
 
-export const ID_PREFIX: { readonly [S in SectionName]: string } = {
+const ID_PREFIX: { readonly [S in SectionName]: string } = {
   plans: "p",
   steps: "s",
   calls: "c",
@@ -26,7 +26,7 @@ const SECTION_BY_PREFIX: { readonly [prefix: string]: SectionName | undefined } 
 
 const ID_PATTERN = /^([a-z])([1-9][0-9]*)$/;
 
-export interface ParsedId {
+interface ParsedId {
   section: SectionName;
   /** Posición del elemento en el arreglo de su sección. */
   index: number;

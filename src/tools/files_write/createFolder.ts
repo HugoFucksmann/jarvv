@@ -8,17 +8,14 @@
 import fs from "node:fs";
 import type { UserEnvironment } from "../../core/environment.ts";
 import { resolvePathTarget } from "../../core/tools/filePaths.ts";
-import { cancelledResult, toolResult } from "../../core/tools/result.ts";
+import { cancelledResult, toolResult, toolFail as fail } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
 
-export interface CreateFolderDeps {
+interface CreateFolderDeps {
   readonly getAllowedDirectories: () => readonly string[];
   readonly getEnvironment: () => Promise<UserEnvironment>;
 }
-
-const fail = (message: string, data: Record<string, unknown> = {}): MCPCallResult =>
-  toolResult({ text: message, raw: message, data: { state: "error", truncated: false, ...data }, isError: true });
 
 export async function runCreateFolder(
   rawArgs: Record<string, unknown>,

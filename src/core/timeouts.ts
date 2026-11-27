@@ -101,7 +101,7 @@ export function resolveToolTimeoutMs(config: TimeoutSource, server: string, tool
   return undefined;
 }
 
-export type ModelTimeoutKind = "qwen" | "qwenThinking" | "decision";
+type ModelTimeoutKind = "qwen" | "qwenThinking" | "decision";
 
 /** Plazo de una llamada a `model`: el override del modelo (`<tag>#thinking` para el razonamiento) o el de la configuración para ese tipo de llamada. */
 export function resolveModelTimeoutMs(config: TimeoutSource, model: string, kind: ModelTimeoutKind): number {

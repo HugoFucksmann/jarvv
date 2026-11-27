@@ -14,7 +14,7 @@ export interface TelegramConfig {
 }
 
 /** `config: null` con el motivo, para que el servidor lo diga al arrancar. */
-export type TelegramSetup = { config: TelegramConfig; warnings: string[] } | { config: null; reason: string };
+type TelegramSetup = { config: TelegramConfig; warnings: string[] } | { config: null; reason: string };
 
 export function telegramConfigFromEnv(env: NodeJS.ProcessEnv, port: number): TelegramSetup {
   const token = env.TELEGRAM_BOT_TOKEN?.trim();

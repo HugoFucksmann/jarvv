@@ -8,7 +8,7 @@
 import { FIXED_TIMEOUTS } from "../../core/timeouts.ts";
 import { spawn } from "node:child_process";
 
-export const KILL_TIMEOUT_MS = FIXED_TIMEOUTS.killMs;
+const KILL_TIMEOUT_MS = FIXED_TIMEOUTS.killMs;
 
 function killMain(pid: number): void {
   try {

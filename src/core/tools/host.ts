@@ -13,7 +13,7 @@ import { toolKey } from "./manifest.ts";
 import type { ToolCallOptions, ToolHost, ToolRef } from "./provider.ts";
 
 /** Cómo se despacha una llamada a un servidor (con la captura de la traza ya aplicada, si corresponde). */
-export type CaptureCall = (server: IMCPServer) => (tool: string, args: Record<string, unknown>, options?: ToolCallOptions) => Promise<MCPCallResult>;
+type CaptureCall = (server: IMCPServer) => (tool: string, args: Record<string, unknown>, options?: ToolCallOptions) => Promise<MCPCallResult>;
 
 export function createToolHost(discovery: Pick<IDiscoveryEngine, "getServer">, allowed: readonly ToolRef[], capture: CaptureCall, taskId?: string): ToolHost {
   const permitted = new Set(allowed.map((ref) => toolKey(ref.server, ref.tool)));

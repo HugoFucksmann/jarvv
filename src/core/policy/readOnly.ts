@@ -22,6 +22,7 @@
 
 import { defaultHomeDirs } from "./homeDirs.ts";
 import { classify } from "./commandRules.ts";
+import { foldQuotes } from "./quotes.ts";
 
 /** Comandos de PowerShell (y alias comunes) que solo consultan o dan formato a lo que reciben. En minúsculas. */
 const READ_COMMANDS: ReadonlySet<string> = new Set([
@@ -42,6 +43,8 @@ const READ_COMMANDS: ReadonlySet<string> = new Set([
   "get-host", "get-module", "get-alias", "get-executionpolicy", "get-itempropertyvalue", "get-disk", "get-partition", "get-physicaldisk",
   "get-netroute", "get-dnsclientserveraddress", "get-netconnectionprofile", "get-localuser", "get-localgroup", "get-printer",
   "get-scheduledtask", "resolve-dnsname", "test-connection", "convertfrom-json", "get-unique",
+  // Estado de Microsoft Defender (solo consulta): antivirus activo, firmas, amenazas detectadas.
+  "get-mpcomputerstatus", "get-mpthreat", "get-mpthreatdetection",
 ]);
 
 /** `true` si `args` es exactamente uno de `flags` (con mayúsculas y minúsculas: en Python `-V` es la versión y `-v` otra cosa). */
@@ -115,7 +118,7 @@ function segmentsOf(command: string): string[] | null {
   const segments: string[] = [];
   let current = "";
   let quote: string | null = null;
-  for (const ch of command) {
+  for (const ch of foldQuotes(command)) {
     if (quote !== null) {
       if (ch === quote) quote = null;
       current += ch;
@@ -159,9 +162,24 @@ export function isReadOnlySegment(segment: string): boolean {
 /** ¿Ninguna regla de comando (`commandRules.ts`) marca el texto, en ningún nivel? */
 export const noCommandRule = (command: string, homeDirs: readonly string[] = defaultHomeDirs()): boolean => classify(command.trim(), { homeDirs }) === null;
 
+/**
+ * Filtro de `Where-Object` con la forma `{ $_.Propiedad -lt (Get-Date).AddHours(-1) }`: es el filtro más pedido sobre `Get-Process`/`Get-Service` y solo compara una propiedad del
+ * objeto de la tubería con un literal (número, texto sin `$` ni acentos graves, o `(Get-Date)` con un `.AddX(n)` fijo). Se acepta como lectura únicamente con esa forma exacta,
+ * una o varias condiciones unidas por `-and`/`-or`; cualquier otro bloque, variable o llamada sigue fuera (fail-closed).
+ */
+const FILTER_OPERAND = String.raw`(?:-?\d+(?:\.\d+)?|'[^'$\`]*'|"[^"$\`]*"|\(Get-Date\)(?:\.Add(?:Seconds|Minutes|Hours|Days)\(-?\d+(?:\.\d+)?\))?)`;
+const FILTER_CONDITION = String.raw`\$_(?:\.\w+)+\s+-(?:eq|ne|lt|le|gt|ge|like|notlike|match|notmatch|ceq|cne|clike|cmatch)\s+${FILTER_OPERAND}`;
+const WHERE_FILTER = new RegExp(
+  String.raw`(\b(?:where-object|where)\s+)\{\s*${FILTER_CONDITION}(?:\s+-(?:and|or)\s+${FILTER_CONDITION})*\s*\}`,
+  "gi",
+);
+
+/** Cambia los filtros de `Where-Object` reconocidos por un token inofensivo, para que el análisis de segmentos no los descarte por llaves, paréntesis y `$_`. */
+const collapseWhereFilters = (command: string): string => command.replace(WHERE_FILTER, "$1__filter__");
+
 /** ¿El comando solo lee? Ver el criterio en la cabecera del archivo. */
 export function isReadOnlyCommand(command: string, homeDirs: readonly string[] = defaultHomeDirs()): boolean {
-  const segments = analyzableSegments(command);
+  const segments = analyzableSegments(collapseWhereFilters(command));
   if (segments === null) return false;
   return segments.every(isReadOnlySegment) && noCommandRule(command, homeDirs);
 }

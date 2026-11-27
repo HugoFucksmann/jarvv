@@ -3,7 +3,7 @@
 import { FIXED_TIMEOUTS } from "../core/timeouts.ts";
 import type { TaskEvent } from "../core/tasks.ts";
 
-export type ApiResult<T = unknown> = { ok: true; data: T } | { ok: false; error: string };
+type ApiResult<T = unknown> = { ok: true; data: T } | { ok: false; error: string };
 
 const RECONNECT_MS = FIXED_TIMEOUTS.telegramReconnectMs;
 
@@ -63,7 +63,7 @@ export class JarvisApi {
         for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
-          buffer += decoder.decode(value, { stream: true });
+          buffer = (buffer + decoder.decode(value, { stream: true })).replace(/\r\n/g, "\n");
           for (let end = buffer.indexOf("\n\n"); end >= 0; end = buffer.indexOf("\n\n")) {
             const raw = buffer.slice(0, end);
             buffer = buffer.slice(end + 2);
@@ -71,7 +71,7 @@ export class JarvisApi {
               .split("\n")
               .filter((l) => l.startsWith("data:"))
               .map((l) => l.slice(5).trim())
-              .join("");
+              .join("\n");
             if (!data) continue; // comentario de keep-alive
             try {
               onEvent(JSON.parse(data) as TaskEvent);
@@ -83,7 +83,10 @@ export class JarvisApi {
       } catch {
         if (signal.aborted) return;
       }
-      await new Promise((resolve) => setTimeout(resolve, RECONNECT_MS));
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, RECONNECT_MS);
+        signal.addEventListener("abort", () => { clearTimeout(timer); resolve(); }, { once: true });
+      });
     }
   }
 }

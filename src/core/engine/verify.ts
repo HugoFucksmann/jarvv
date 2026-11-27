@@ -22,7 +22,7 @@ import { knownVerifyAnswers, postconditionOf } from "./postcondition.ts";
 import { closeOnFailure, pauseOf, queryModel } from "./failures.ts";
 import { runProbes } from "./probes.ts";
 
-export type VerifyOutcome =
+type VerifyOutcome =
   | { readonly kind: "verified"; readonly verdict: CallVerdict; readonly reason: VerdictReason | null }
   | { readonly kind: "skipped" }
   | { readonly kind: "close"; readonly stopReason: "unrecoverable" }

@@ -19,7 +19,7 @@ export const CANDIDATES = 15;
 /** Máximo de candidatos de una misma fuente: una página larga no acapara la lista. */
 export const PER_SOURCE = 3;
 /** Cobertura mínima para ser candidato: por debajo, el fragmento solo comparte palabras genéricas con la pregunta. */
-export const MIN_COVERAGE = 0.15;
+const MIN_COVERAGE = 0.15;
 /** Dos candidatos con esta similitud de vocabulario (Jaccard) o más dicen lo mismo: queda el mejor. */
 const NEAR_DUPLICATE = 0.8;
 /** Un extracto del buscador cuyo vocabulario está al menos en esta fracción dentro de un fragmento de la misma fuente se cuenta como repetido. */

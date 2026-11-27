@@ -16,7 +16,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-export type RefVaultErrorCode = "invalid_input" | "write_failed" | "read_failed" | "outside_dir";
+type RefVaultErrorCode = "invalid_input" | "write_failed" | "read_failed" | "outside_dir";
 
 /** Error único del almacén. Qué hace el ejecutor con él se decide en la Fase 5. */
 export class RefVaultError extends Error {
@@ -32,12 +32,12 @@ export class RefVaultError extends Error {
   }
 }
 
-export interface RefVaultOptions {
+interface RefVaultOptions {
   /** Directorio raíz de las refs (`refsDir`). */
   dir: string;
 }
 
-export interface StoredRef {
+interface StoredRef {
   /** Ruta absoluta del archivo con el texto crudo. */
   where: string;
   /** Tamaño en caracteres de lo guardado (el texto, o el texto cortado más la marca si superó `REF_MAX_CHARS`). */

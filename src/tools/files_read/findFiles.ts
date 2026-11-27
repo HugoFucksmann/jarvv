@@ -12,7 +12,7 @@ import fs from "node:fs";
 import type { UserEnvironment } from "../../core/environment.ts";
 import { BUDGET } from "../../core/budget.ts";
 import { omissionMarker } from "../../core/text.ts";
-import { toolResult } from "../../core/tools/result.ts";
+import { toolResult, toolFail as fail } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { effectiveTimeoutMs, formatSize, resolveFolderPath, fitLinesToBudget } from "../../core/tools/filePaths.ts";
 import { settle, walkFolder } from "../../core/tools/walkFolder.ts";
@@ -30,7 +30,7 @@ type StoppedBy = "time" | "entries" | "depth";
 type FindState = "found" | "partial" | "no_results" | "incomplete" | "cancelled";
 
 
-export interface FindFilesDeps {
+interface FindFilesDeps {
   readonly getAllowedDirectories: () => readonly string[];
   readonly getEnvironment: () => Promise<UserEnvironment>;
   readonly now: () => number;
@@ -54,9 +54,6 @@ interface FindMatch {
   readonly depth: number;
   readonly rank: MatchRank;
 }
-
-const fail = (message: string, data: Record<string, unknown> = {}): MCPCallResult =>
-  toolResult({ text: message, raw: message, data: { state: "error", truncated: false, ...data }, isError: true });
 
 function parseArgs(raw: Record<string, unknown>): { readonly ok: true; readonly args: ParsedFindArgs } | { readonly ok: false; readonly message: string } {
   if (typeof raw.pattern !== "string" || raw.pattern.trim() === "") {

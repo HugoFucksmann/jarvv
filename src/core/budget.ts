@@ -40,8 +40,10 @@ export const BUDGET = {
   maxCallsPerStep: 6,
   /** Intentos por paso: toda llamada registrada salvo `user_rejected`, incluidas las que no tocaron la herramienta (bloqueadas, argumentos inválidos...). Techo contra un modelo que da vueltas. */
   maxAttemptsPerStep: 10,
-  /** Rechazos `not_accomplished` de Decisión 4 que agotan una ruta en un paso (deja de ofrecerse a Decisión 1 en ese paso). */
-  maxNotAccomplishedPerRoute: 2,
+  /** Veces que se vuelve a pedir la lista de pendientes (con más temperatura) cuando tras un fallo vuelve idéntica al ítem que falló, antes de cerrar `no_alternatives`. */
+  maxListRewriteRetries: 1,
+  /** Veces que se vuelve a generar los argumentos (con más temperatura) cuando salen idénticos a una llamada ya hecha, antes de dejar que el anti-bucle la bloquee. */
+  argsRegenerations: 2,
   /** Llamadas bloqueadas por repetición (`loop_blocked`) que fallan el paso: 2 = un solo reintento. */
   maxRepeatsPerStep: 2,
   /** Llamadas rechazadas por la revisión (`args_invalid`) que fallan el paso: 2 = un solo reintento. */
@@ -133,7 +135,6 @@ export const BUDGET = {
     /** Schema limpio de la herramienta candidata (`forReview`, Decisión 3). */
     candidateSchema: 3000,
     previousFeedback: 4,
-    finalNote: 600,
     finalStepInstruction: 300,
     evidence: 38,
     evidenceSummary: 1500,

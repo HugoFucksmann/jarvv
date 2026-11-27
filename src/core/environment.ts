@@ -31,7 +31,7 @@ type FolderKey = (typeof FOLDER_KEYS)[number];
 /** Sistema operativo de esta PC (sale de `process.platform`, sin consultas externas). */
 export type Platform = "windows" | "macos" | "linux";
 
-export function currentPlatform(): Platform {
+function currentPlatform(): Platform {
     return process.platform === "win32" ? "windows" : process.platform === "darwin" ? "macos" : "linux";
 }
 

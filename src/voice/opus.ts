@@ -8,7 +8,7 @@ import path from "node:path";
  * Ejecutable de ffmpeg: `FFMPEG_PATH`, el del PATH o, en Windows, el que instala winget (Gyan.FFmpeg). Esto último evita reiniciar
  * Jarvis desde una terminal nueva tras instalarlo: el proceso en marcha no ve el PATH actualizado.
  */
-export function ffmpegBin(): string {
+function ffmpegBin(): string {
   if (process.env.FFMPEG_PATH) return process.env.FFMPEG_PATH;
   const local = process.platform === "win32" ? process.env.LOCALAPPDATA : undefined;
   if (local) {
@@ -38,6 +38,9 @@ export function ffmpegAvailable(): Promise<boolean> {
   });
 }
 
+/** Tope de una conversión: si ffmpeg se cuelga se lo mata en vez de dejar la nota de voz esperando para siempre. */
+const FFMPEG_TIMEOUT_MS = 30_000;
+
 export function pcmToOggOpus(pcm: Buffer): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const ff = spawn(ffmpegBin(), [
@@ -45,6 +48,10 @@ export function pcmToOggOpus(pcm: Buffer): Promise<Buffer> {
       "-f", "s16le", "-ar", "24000", "-ac", "1", "-i", "pipe:0",
       "-c:a", "libopus", "-b:a", "32k", "-f", "ogg", "pipe:1",
     ]);
+    const timer = setTimeout(() => {
+      ff.kill();
+      reject(new Error("ffmpeg tardó demasiado en convertir el audio."));
+    }, FFMPEG_TIMEOUT_MS);
     const out: Buffer[] = [];
     ff.stdout.on("data", (d: Buffer) => out.push(d));
     // `stderr` se consume siempre (si no, un pipe lleno frena a ffmpeg) y su última línea explica el fallo.
@@ -52,8 +59,12 @@ export function pcmToOggOpus(pcm: Buffer): Promise<Buffer> {
     ff.stderr.on("data", (d: Buffer) => {
       stderr = (stderr + d.toString("utf8")).slice(-2_000);
     });
-    ff.on("error", (e: NodeJS.ErrnoException) => reject(e.code === "ENOENT" ? new Error(MISSING) : e));
+    ff.on("error", (e: NodeJS.ErrnoException) => {
+      clearTimeout(timer);
+      reject(e.code === "ENOENT" ? new Error(MISSING) : e);
+    });
     ff.on("close", (code) => {
+      clearTimeout(timer);
       if (code === 0) return resolve(Buffer.concat(out));
       const reason = stderr.trim().split(/\r?\n/).pop();
       reject(new Error(`ffmpeg terminó con código ${code}${reason ? `: ${reason}` : ""}`));

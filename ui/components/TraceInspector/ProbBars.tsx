@@ -22,7 +22,7 @@ export const COMPLETION_INCOMPLETE_BELOW = 0.25;
 export const CONTINUATION_APPROVE = 0.3;
 export const FIRST_QUERY_MULTI_APPROVE = 0.5;
 
-export interface NoulSummary {
+interface NoulSummary {
   yes: number;
   no: number;
   yesPctText: string;

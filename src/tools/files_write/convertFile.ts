@@ -27,7 +27,7 @@ import {
   type ResolvedExistingTarget,
   type ResolvedTarget,
 } from "../../core/tools/filePaths.ts";
-import { cancelledResult, toolResult } from "../../core/tools/result.ts";
+import { cancelledResult, toolResult, toolFail as fail } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
 
@@ -37,11 +37,11 @@ export const DEFAULT_CONVERT_TIMEOUT_MS = 60_000;
 const MAX_DIMENSION = 16_384;
 const MAX_STDERR_BYTES = 64 * 1024;
 
-export const IMAGE_EXTS: ReadonlySet<string> = new Set(["png", "jpg", "jpeg", "webp", "bmp", "gif", "tiff", "ico", "avif"]);
-export const AUDIO_EXTS: ReadonlySet<string> = new Set(["mp3", "wav", "ogg", "flac", "aac", "m4a", "opus", "wma"]);
-export const VIDEO_EXTS: ReadonlySet<string> = new Set(["mp4", "mkv", "webm", "mov", "avi"]);
+const IMAGE_EXTS: ReadonlySet<string> = new Set(["png", "jpg", "jpeg", "webp", "bmp", "gif", "tiff", "ico", "avif"]);
+const AUDIO_EXTS: ReadonlySet<string> = new Set(["mp3", "wav", "ogg", "flac", "aac", "m4a", "opus", "wma"]);
+const VIDEO_EXTS: ReadonlySet<string> = new Set(["mp4", "mkv", "webm", "mov", "avi"]);
 
-export type MediaCategory = "image" | "audio" | "video";
+type MediaCategory = "image" | "audio" | "video";
 
 export interface ConvertRequest {
   readonly sourcePath: string;
@@ -68,7 +68,7 @@ export interface ConvertDriver {
   convert(req: ConvertRequest): Promise<ConvertResultInfo>;
 }
 
-export interface ConvertFileDeps {
+interface ConvertFileDeps {
   readonly getAllowedDirectories: () => readonly string[];
   readonly getEnvironment: () => Promise<UserEnvironment>;
   readonly driver?: ConvertDriver;
@@ -76,10 +76,7 @@ export interface ConvertFileDeps {
   readonly defaultTimeoutMs?: number;
 }
 
-const fail = (message: string, data: Record<string, unknown> = {}): MCPCallResult =>
-  toolResult({ text: message, raw: message, data: { state: "error", truncated: false, ...data }, isError: true });
-
-export function detectMediaCategory(ext: string): MediaCategory | undefined {
+function detectMediaCategory(ext: string): MediaCategory | undefined {
   const clean = ext.replace(/^\./, "").toLowerCase();
   if (IMAGE_EXTS.has(clean)) return "image";
   if (AUDIO_EXTS.has(clean)) return "audio";
@@ -87,7 +84,7 @@ export function detectMediaCategory(ext: string): MediaCategory | undefined {
   return undefined;
 }
 
-export function isConversionAllowed(source: MediaCategory, target: MediaCategory, targetExt: string): boolean {
+function isConversionAllowed(source: MediaCategory, target: MediaCategory, targetExt: string): boolean {
   if (source === target) return true;
   if (source === "video" && (target === "audio" || (target === "image" && targetExt === "gif"))) return true;
   return false;
@@ -226,7 +223,7 @@ const PS_IMAGE_CONVERT = [
   "} finally { $src.Dispose() }",
 ].join("; ");
 
-export function createDefaultConvertDriver(platform: NodeJS.Platform = process.platform): ConvertDriver {
+function createDefaultConvertDriver(platform: NodeJS.Platform = process.platform): ConvertDriver {
   return {
     async convert(req: ConvertRequest): Promise<ConvertResultInfo> {
       try {

@@ -14,7 +14,7 @@ import type { PathFinding } from "./sensitivePaths.ts";
 /** Herramientas cuyos argumentos salen a internet, como `servidor:herramienta` en minúsculas. */
 const EGRESS_TOOLS: ReadonlySet<string> = new Set(["jarvis_web:web_search", "jarvis_web:download_file", "jarvis_multimedia:play_media", "jarvis_system:open_on_screen"]);
 
-export const isEgressTool = (mcp: string, tool: string): boolean => EGRESS_TOOLS.has(`${mcp}:${tool}`.toLowerCase());
+const isEgressTool = (mcp: string, tool: string): boolean => EGRESS_TOOLS.has(`${mcp}:${tool}`.toLowerCase());
 
 interface EgressRule {
   readonly id: string;

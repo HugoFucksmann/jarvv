@@ -39,7 +39,7 @@ npm run eval -- --variant=mi_variante --no-baseline --dataset=smoke   # sin prod
 | `--list` | Lista etapas, variantes y datasets disponibles |
 | `--menu` | Asistente interactivo que arma y ejecuta el comando |
 | `--client=oracle` | Valida casos y graders sin modelos |
-| `--dataset=smoke` | Corrida real con los modelos por defecto del eval (por defecto `qwen3.5:4b-text` y `d3:4b-text`; las URLs salen de ese archivo) |
+| `--dataset=smoke` | Corrida real con los modelos por defecto del eval (por defecto `qwen3.5:4b-text` de producción y `d3:2b-text`; las URLs salen de `jarvis-config.json`) |
 | `--variant=… --repeat=3` | Compara una variante contra `prod` con tres repeticiones |
 
 ---

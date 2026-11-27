@@ -19,6 +19,7 @@
  * - La política sale únicamente del manifest (tools/manifest.ts); no hay otra fuente.
  */
 
+import fs from "node:fs";
 import path from "node:path";
 
 import type { Capability, GuardDecision } from "../types.ts";
@@ -63,6 +64,23 @@ export interface ProtectedPaths {
 export function isPathInside(parent: string, child: string): boolean {
   const relative = path.relative(path.resolve(parent), path.resolve(child));
   return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+}
+
+/** `realpath` del ancestro existente más cercano más el resto aún inexistente: resuelve enlaces aunque el destino todavía no exista. */
+function canonicalPath(p: string): string {
+  const resolved = path.resolve(p);
+  let existing = resolved;
+  const rest: string[] = [];
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync.native(existing), ...rest.reverse());
+    } catch {
+      const parent = path.dirname(existing);
+      if (parent === existing) return resolved;
+      rest.push(path.basename(existing));
+      existing = parent;
+    }
+  }
 }
 
 function samePath(a: string, b: string): boolean {
@@ -172,9 +190,13 @@ export class Guard {
   }
 
   private static isProtectedTarget(candidate: string, scope: ProtectedPaths): boolean {
-    return (
-      scope.protectedDirs.some((dir) => isPathInside(dir, candidate)) ||
-      (scope.protectedFiles?.some((file) => samePath(file, candidate)) ?? false)
+    // Se comprueba la ruta tal cual y su forma canónica: un enlace simbólico o unión hacia una carpeta protegida no debe esquivar la regla.
+    const real = canonicalPath(candidate);
+    const candidates = real === path.resolve(candidate) ? [candidate] : [candidate, real];
+    return candidates.some(
+      (c) =>
+        scope.protectedDirs.some((dir) => isPathInside(dir, c) || isPathInside(canonicalPath(dir), c)) ||
+        (scope.protectedFiles?.some((file) => samePath(file, c) || samePath(canonicalPath(file), c)) ?? false),
     );
   }
 

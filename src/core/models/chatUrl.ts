@@ -6,7 +6,7 @@
  * su propio error y mensaje.
  */
 
-export type ChatUrlResult =
+type ChatUrlResult =
   | { readonly ok: true; readonly url: string }
   | { readonly ok: false; readonly reason: "empty" | "unsupported"; readonly base: string };
 

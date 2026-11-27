@@ -17,14 +17,14 @@ import { BUDGET } from "../../core/budget.ts";
 import type { UserEnvironment } from "../../core/environment.ts";
 import { omissionMarker } from "../../core/text.ts";
 import { fitLinesToBudget, formatSize, isBinaryFile, resolveExistingPath, pathFailureData } from "../../core/tools/filePaths.ts";
-import { cancelledResult, toolResult } from "../../core/tools/result.ts";
+import { cancelledResult, toolResult, toolFail as fail } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
 
 export const DEFAULT_READ_OFFSET = 1;
 export const DEFAULT_READ_LIMIT = 200;
 export const MAX_READ_LIMIT = 2_000;
-export const MAX_DISPLAY_LINE_CHARS = 500;
+const MAX_DISPLAY_LINE_CHARS = 500;
 
 const STRUCTURED_BINARY_EXTS: ReadonlySet<string> = new Set([
   "pdf",
@@ -70,7 +70,7 @@ export interface ReadFileDriver {
   read(ctx: ReadDriverContext): Promise<MCPCallResult>;
 }
 
-export interface ReadFileDeps {
+interface ReadFileDeps {
   readonly getAllowedDirectories: () => readonly string[];
   readonly getEnvironment: () => Promise<UserEnvironment>;
   readonly drivers?: readonly ReadFileDriver[];
@@ -84,9 +84,6 @@ interface ParsedReadArgs {
 }
 
 const VALID_ENCODINGS = ["utf8", "latin1"] as const;
-
-const fail = (message: string, data: Record<string, unknown> = {}): MCPCallResult =>
-  toolResult({ text: message, raw: message, data: { state: "error", truncated: false, ...data }, isError: true });
 
 function parseArgs(
   raw: Record<string, unknown>,

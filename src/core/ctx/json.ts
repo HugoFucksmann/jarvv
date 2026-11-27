@@ -10,14 +10,14 @@ export function isPlainObject(value: unknown): value is Record<string, unknown> 
   return proto === Object.prototype || proto === null;
 }
 
-export interface JsonProblem {
+interface JsonProblem {
   /** `shape`: no es JSON plano. `limit`: un string supera el tope o la anidación supera la profundidad máxima. */
   kind: "shape" | "limit";
   path: string;
   detail: string;
 }
 
-export interface JsonCheckOptions {
+interface JsonCheckOptions {
   maxDepth: number;
   /** Largo máximo de cualquier string del valor; null = sin tope. */
   maxString: number | null;

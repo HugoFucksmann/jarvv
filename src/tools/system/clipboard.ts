@@ -11,12 +11,12 @@ import { spawn } from "node:child_process";
 import { BUDGET } from "../../core/budget.ts";
 import { headTailNeutral } from "../../core/text.ts";
 import { effectiveTimeoutMs } from "../../core/tools/filePaths.ts";
-import { cancelledResult, toolResult } from "../../core/tools/result.ts";
+import { cancelledResult, toolResult, toolFail as fail } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
 
 export const DEFAULT_CLIPBOARD_TIMEOUT_MS = 5_000;
-export const MAX_CLIPBOARD_WRITE_CHARS = 1_000_000;
+const MAX_CLIPBOARD_WRITE_CHARS = 1_000_000;
 const MAX_STDERR_BYTES = 64 * 1024;
 /** Lo máximo que se lee del portapapeles: el doble de lo que se deja escribir, en bytes (UTF-8 usa hasta 4 por carácter). Más que eso es un error, no un texto cortado. */
 export const MAX_CLIPBOARD_READ_BYTES = MAX_CLIPBOARD_WRITE_CHARS * 4;
@@ -26,7 +26,7 @@ export interface ClipboardDriver {
   write(text: string, signal?: AbortSignal): Promise<void>;
 }
 
-export interface ClipboardDeps {
+interface ClipboardDeps {
   readonly driver?: ClipboardDriver;
   readonly platform?: NodeJS.Platform;
   readonly defaultTimeoutMs?: number;
@@ -34,9 +34,6 @@ export interface ClipboardDeps {
 
 const VALID_ACTIONS = ["read", "write"] as const;
 type ClipboardAction = (typeof VALID_ACTIONS)[number];
-
-const fail = (message: string, data: Record<string, unknown> = {}): MCPCallResult =>
-  toolResult({ text: message, raw: message, data: { state: "error", truncated: false, ...data }, isError: true });
 
 const PS_READ_CLIPBOARD = [
   "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)",
@@ -158,7 +155,7 @@ export function runPowerShellIo(
   });
 }
 
-export function createDefaultClipboardDriver(
+function createDefaultClipboardDriver(
   platform: NodeJS.Platform = process.platform,
   timeoutMs = DEFAULT_CLIPBOARD_TIMEOUT_MS,
 ): ClipboardDriver {

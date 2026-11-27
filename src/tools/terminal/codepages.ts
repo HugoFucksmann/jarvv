@@ -13,7 +13,7 @@ export interface CodePages {
   readonly ansi: number;
 }
 
-export const DEFAULT_CODE_PAGES: CodePages = { oem: 850, ansi: 1252 };
+const DEFAULT_CODE_PAGES: CodePages = { oem: 850, ansi: 1252 };
 
 let cached: CodePages | undefined;
 

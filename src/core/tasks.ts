@@ -47,7 +47,7 @@ import { errorMessage, newId } from "./utils.ts";
 export const RESTART_RESULT_TEXT = "El servidor se reinició mientras la tarea corría";
 
 /** Motores que recibe la fachada; los construye la raíz de composición (server.ts). */
-export interface TaskManagerDeps {
+interface TaskManagerDeps {
   readonly decision: IActionDecision;
   readonly discovery: IDiscoveryEngine;
   readonly llm: EngineLLM;
@@ -79,7 +79,7 @@ export type TaskEvent =
   | { readonly type: "waiting"; readonly taskId: string; readonly waiting: Waiting | null }
   | { readonly type: "paused"; readonly taskId: string; readonly paused: ModelPause | null };
 
-export type TaskListener = (event: TaskEvent) => void;
+type TaskListener = (event: TaskEvent) => void;
 
 /** Resultado de una orden del usuario: el servidor lo traduce a HTTP (404, 409). */
 export type ControlResult = "ok" | "unknown_task" | "not_waiting";

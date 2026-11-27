@@ -17,7 +17,7 @@ export const waitKey = (w: Waiting): string => (w.kind === "question" ? `q${w.qu
 /** Identifica la espera en el `callback_data` de los botones (Telegram lo limita a 64 bytes). */
 export const tagOf = (w: Waiting): string => waitKey(w).slice(0, 8);
 
-export interface WaitingPrompt {
+interface WaitingPrompt {
   /** Markdown del mensaje. */
   readonly markdown: string;
   readonly keyboard: InlineKeyboard;

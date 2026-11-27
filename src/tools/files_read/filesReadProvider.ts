@@ -7,7 +7,7 @@
 
 import { getUserEnvironment, type UserEnvironment } from "../../core/environment.ts";
 import type { ToolCallOptions, ToolProvider } from "../../core/tools/provider.ts";
-import { toolResult } from "../../core/tools/result.ts";
+import { toolFail as fail } from "../../core/tools/result.ts";
 import {
   DEFAULT_FIND_MAX_DEPTH,
   DEFAULT_FIND_MAX_ENTRIES,
@@ -43,11 +43,11 @@ import {
   runSearchContent,
 } from "./searchContent.ts";
 
-export const FILES_READ_SERVER = "jarvis_files_read";
-export const READ_FILE = "read_file";
-export const SEARCH_CONTENT = "search_content";
-export const FIND_FILES = "find_files";
-export const LIST_FOLDER = "list_folder";
+const FILES_READ_SERVER = "jarvis_files_read";
+const READ_FILE = "read_file";
+const SEARCH_CONTENT = "search_content";
+const FIND_FILES = "find_files";
+const LIST_FOLDER = "list_folder";
 
 export type { ReadDriverContext, ReadFileDriver } from "./readFile.ts";
 
@@ -80,7 +80,7 @@ const READ_FILE_TOOL: MCPTool = {
   },
 };
 
-export const FIND_FILES_TOOL: MCPTool = {
+const FIND_FILES_TOOL: MCPTool = {
   name: FIND_FILES,
   description: "Find files or folders by name (wildcards like *.csv). Not for text inside files.",
   inputSchema: {
@@ -110,7 +110,7 @@ export const FIND_FILES_TOOL: MCPTool = {
   },
 };
 
-export const LIST_FOLDER_TOOL: MCPTool = {
+const LIST_FOLDER_TOOL: MCPTool = {
   name: LIST_FOLDER,
   description: "List a folder with type, size and date; can sort and filter by extension.",
   inputSchema: {
@@ -204,10 +204,7 @@ const SEARCH_CONTENT_TOOL: MCPTool = {
 
 const TOOLS: readonly MCPTool[] = [FIND_FILES_TOOL, LIST_FOLDER_TOOL, SEARCH_CONTENT_TOOL, READ_FILE_TOOL];
 
-const fail = (message: string): MCPCallResult =>
-  toolResult({ text: message, raw: message, data: { state: "error", truncated: false }, isError: true });
-
-export interface FilesReadProviderOptions {
+interface FilesReadProviderOptions {
   readonly allowedDirectories?: () => readonly string[];
   readonly environment?: () => Promise<UserEnvironment>;
   readonly now?: () => number;

@@ -41,7 +41,7 @@ import { checkStepLimits } from "./limits.ts";
 import { canAskProcessPrompt, canAskUser, repeatsApprovedCall } from "./retries.ts";
 
 /** Cómo empieza el paso: reactivo lo crea; deliberativo promueve el `pending` que indica el proveedor. */
-export type StepSeed = { readonly kind: "reactive"; readonly instruction: string } | { readonly kind: "planned"; readonly stepId: string };
+type StepSeed = { readonly kind: "reactive"; readonly instruction: string } | { readonly kind: "planned"; readonly stepId: string };
 
 const CANCELLED: StepOutcome = { kind: "cancelled" };
 
@@ -93,7 +93,7 @@ export async function runStep(env: EngineEnv, seed: StepSeed): Promise<StepOutco
     }
 
     // ── Destino de la llamada: Decisión 1 en ambos modos.
-    const routes = await availableRoutes(env, stepId, reactive ? EXECUTABLE_ROUTES : [plannedRoute as ExecutableRoute]);
+    const routes = await availableRoutes(env, reactive ? EXECUTABLE_ROUTES : [plannedRoute as ExecutableRoute]);
     if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
     if (routes.length === 0) return failStep("no_tools");
 

@@ -10,7 +10,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { effectiveTimeoutMs } from "../../core/tools/filePaths.ts";
-import { cancelledResult, toolResult } from "../../core/tools/result.ts";
+import { cancelledResult, toolResult, toolFail as fail } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
 
@@ -33,19 +33,16 @@ export interface PowerController {
   execute(req: PowerRequest): Promise<void>;
 }
 
-export interface PowerDeps {
+interface PowerDeps {
   readonly controller?: PowerController;
   readonly platform?: NodeJS.Platform;
   readonly defaultTimeoutMs?: number;
 }
 
-const fail = (message: string, data: Record<string, unknown> = {}): MCPCallResult =>
-  toolResult({ text: message, raw: message, data: { state: "error", truncated: false, ...data }, isError: true });
-
 const PS_SLEEP_SCRIPT =
   "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Application]::SetSuspendState([System.Windows.Forms.PowerState]::Suspend, $false, $false)";
 
-export function createDefaultPowerController(
+function createDefaultPowerController(
   platform: NodeJS.Platform = process.platform,
   timeoutMs = DEFAULT_POWER_TIMEOUT_MS,
 ): PowerController {

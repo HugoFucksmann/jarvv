@@ -8,7 +8,7 @@
 
 import { getUserEnvironment, type UserEnvironment } from "../../core/environment.ts";
 import type { ToolCallOptions, ToolProvider } from "../../core/tools/provider.ts";
-import { toolResult } from "../../core/tools/result.ts";
+import { toolFail as fail } from "../../core/tools/result.ts";
 import type { MCPCallResult, MCPTool } from "../../core/types.ts";
 import {
   DEFAULT_ARCHIVE_MAX_ENTRIES,
@@ -30,15 +30,15 @@ import { DEFAULT_EDIT_MAX_FILE_BYTES, runEditFile } from "./editFile.ts";
 import { MAX_MOVE_ITEMS, runMoveFile } from "./moveFile.ts";
 import { runWriteFile, type WriteFileDriver } from "./writeFile.ts";
 
-export const FILES_WRITE_SERVER = "jarvis_files_write";
-export const CREATE_FOLDER = "create_folder";
-export const WRITE_FILE = "write_file";
-export const EDIT_FILE = "edit_file";
-export const COPY_FILE = "copy_file";
-export const MOVE_FILE = "move_file";
-export const DELETE_FILE = "delete_file";
-export const ARCHIVE_FILES = "archive_files";
-export const CONVERT_FILE = "convert_file";
+const FILES_WRITE_SERVER = "jarvis_files_write";
+const CREATE_FOLDER = "create_folder";
+const WRITE_FILE = "write_file";
+const EDIT_FILE = "edit_file";
+const COPY_FILE = "copy_file";
+const MOVE_FILE = "move_file";
+const DELETE_FILE = "delete_file";
+const ARCHIVE_FILES = "archive_files";
+const CONVERT_FILE = "convert_file";
 
 export type { ConvertDriver, ConvertRequest, ConvertResultInfo } from "./convertFile.ts";
 export type { TrashHandler } from "./deleteFile.ts";
@@ -227,10 +227,7 @@ const TOOLS: readonly MCPTool[] = [
   CONVERT_FILE_TOOL,
 ];
 
-const fail = (message: string): MCPCallResult =>
-  toolResult({ text: message, raw: message, data: { state: "error", truncated: false }, isError: true });
-
-export interface FilesWriteProviderOptions {
+interface FilesWriteProviderOptions {
   readonly allowedDirectories?: () => readonly string[];
   readonly environment?: () => Promise<UserEnvironment>;
   readonly now?: () => number;

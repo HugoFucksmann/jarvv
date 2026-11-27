@@ -34,9 +34,15 @@ export interface ToolCapture {
   readonly error: string | null;
 }
 
+/** Por qué cerró la tarea, más fino que `stopReason` (que agrupa causas distintas bajo `no_alternatives`). Solo para la traza: el motor no decide con ello. */
+export interface ClosingCapture {
+  readonly cause: string;
+}
+
 export interface CaptureSink {
   llm(event: LlmCapture): void;
   tool(event: ToolCapture): void;
+  closing?(event: ClosingCapture): void;
 }
 
 /** Receptor vacío: la versión por defecto cuando no hay traza. */

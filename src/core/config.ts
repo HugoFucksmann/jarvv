@@ -121,12 +121,12 @@ export interface JarvisConfig {
 /** Origen de la configuración vigente: quien construye un motor se lo pasa (la raíz de composición decide de dónde sale). Se llama en cada uso, así un cambio en caliente se respeta. */
 export type ConfigSource = () => JarvisConfig;
 
-export interface ConfigChangeEvent {
+interface ConfigChangeEvent {
   readonly prev: JarvisConfig;
   readonly next: JarvisConfig;
 }
 
-export type ConfigChangeListener = (event: ConfigChangeEvent) => void;
+type ConfigChangeListener = (event: ConfigChangeEvent) => void;
 
 /**
  * Campos de un servidor MCP que definen QUÉ proceso lanza Jarvis. Solo se cambian editando `jarvis-config.json` y reiniciando:
@@ -254,7 +254,8 @@ function blacklistEntries(v: unknown): BlacklistEntry[] | undefined {
   for (const raw of v) {
     if (!isRecord(raw) || typeof raw.tool !== "string" || !raw.tool.trim() || typeof raw.reason !== "string" || !raw.reason.trim()) continue;
     const pattern = typeof raw.pattern === "string" && raw.pattern.trim() ? raw.pattern : undefined;
-    out.push({ tool: raw.tool.trim(), reason: raw.reason.trim(), ...(pattern === undefined ? {} : { pattern }) });
+    const level = raw.level === "blocked" || raw.level === "sensitive" ? raw.level : undefined;
+    out.push({ tool: raw.tool.trim(), reason: raw.reason.trim(), ...(pattern === undefined ? {} : { pattern }), ...(level === undefined ? {} : { level }) });
   }
   return out;
 }

@@ -45,7 +45,7 @@ export interface Material {
   readonly diagnostics: Record<string, unknown>;
 }
 
-export type Parsed<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly detail: string };
+type Parsed<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly detail: string };
 
 const bad = (detail: string): { ok: false; detail: string } => ({ ok: false, detail });
 

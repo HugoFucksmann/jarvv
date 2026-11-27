@@ -43,12 +43,12 @@ export function routeViewOptions(route?: ExecutableRoute): RouteViewOptions {
   return route === undefined ? windowOptions() : { ...windowOptions(), route };
 }
 
-export function reviewViewOptions(): ReviewViewOptions {
-  return { recentWindows: BUDGET.recentWindows, lastReads: BUDGET.caps.lastReads };
+export function reviewViewOptions(readIds?: readonly string[]): ReviewViewOptions {
+  return { recentWindows: BUDGET.recentWindows, lastReads: BUDGET.caps.lastReads, ...(readIds === undefined ? {} : { readIds }) };
 }
 
-export function argsViewOptions(tool?: string): ArgsViewOptions {
-  return { ...reviewViewOptions(), tool, recalled: recalledFilterFor("forArgs") };
+export function argsViewOptions(tool?: string, readIds?: readonly string[]): ArgsViewOptions {
+  return { ...reviewViewOptions(readIds), tool, recalled: recalledFilterFor("forArgs") };
 }
 
 export function argsRenderOptions(): ArgsRenderOptions {
@@ -112,8 +112,8 @@ export function planInput(ctx: TaskContext, feedback: string | null, trigger?: P
 }
 
 /** La vista `forArgs` ya renderizada; `overflow` indica que los efectos no caben en su reserva (el motor cierra la tarea). */
-export function renderArgsView(ctx: TaskContext, tool?: string): Rendered {
-  return renderArgs(ctx.view.forArgs(argsViewOptions(tool)), argsRenderOptions());
+export function renderArgsView(ctx: TaskContext, tool?: string, readIds?: readonly string[]): Rendered {
+  return renderArgs(ctx.view.forArgs(argsViewOptions(tool, readIds)), argsRenderOptions());
 }
 
 /** Entrada de la generación de argumentos: la herramienta, su schema limpio, las rutas del usuario y el texto de la vista. */
@@ -140,7 +140,7 @@ const ATTEMPT_SUMMARY_STATUSES: readonly CallView["status"][] = ["tool_error", "
 
 /**
  * Intento no aprobado (Decisión 1 y 2): la línea `L` y, solo si el resumen explica el fallo, ese resumen recortado a `attemptSummary`.
- * Una llamada ejecutada que la verificación rechazó ya dice por qué en la línea (`reasonNote`): su resumen es el resultado leído
+ * Una llamada ejecutada que la verificación rechazó muestra su `verdict` en la línea: su resumen es el resultado leído
  * (un listado, una salida larga) y no se repite acá.
  */
 function attemptText(call: CallView): string {
@@ -171,7 +171,7 @@ function decisionFrame(view: RouteView): DecisionFrame {
   };
 }
 
-export interface RouteChoiceFlags {
+interface RouteChoiceFlags {
   /** Rutas con alguna herramienta usable. */
   readonly routes: readonly ExecutableRoute[];
 }

@@ -230,6 +230,8 @@ export function useJarvis() {
       attempts++;
       if (attempts > MCP_WARMUP_MAX_ATTEMPTS) {
         clearInterval(timer);
+        // Agotados los intentos sin que el servidor responda con herramientas: no se queda en «Inicializando…» para siempre.
+        setMcpInitStatus((prev) => (prev === "loading" ? "error" : prev));
         return;
       }
       void fetchStateRef.current();

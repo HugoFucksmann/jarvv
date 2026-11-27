@@ -15,9 +15,10 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { effectiveTimeoutMs } from "../../core/tools/filePaths.ts";
-import { cancelledResult, toolResult } from "../../core/tools/result.ts";
+import { cancelledResult, toolResult, toolFail as fail } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
+import { PS_UTF8_PREFIX } from "../psPrefix.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -36,16 +37,12 @@ export interface PcSettingsDriver {
   set(setting: PcSettingName, value: SettingValue, signal?: AbortSignal): Promise<SettingValue>;
 }
 
-export interface PcSettingsDeps {
+interface PcSettingsDeps {
   readonly driver?: PcSettingsDriver;
   readonly platform?: NodeJS.Platform;
   readonly defaultTimeoutMs?: number;
 }
 
-const fail = (message: string, data: Record<string, unknown> = {}): MCPCallResult =>
-  toolResult({ text: message, raw: message, data: { state: "error", truncated: false, ...data }, isError: true });
-
-const PS_UTF8_PREFIX = "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)";
 
 async function runPs(
   script: string,
@@ -149,7 +146,7 @@ const PS_SET_DND = [
   "$env:JARVIS_TOGGLE",
 ].join("; ");
 
-export function createDefaultPcSettingsDriver(
+function createDefaultPcSettingsDriver(
   platform: NodeJS.Platform = process.platform,
   timeoutMs = DEFAULT_PC_SETTINGS_TIMEOUT_MS,
 ): PcSettingsDriver {

@@ -24,23 +24,23 @@ import {
   resolvePathTarget,
   tempSuffix,
 } from "../../core/tools/filePaths.ts";
-import { cancelledResult, toolResult } from "../../core/tools/result.ts";
+import { cancelledResult, toolResult, toolFail as fail } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
 
-export const DEFAULT_DOWNLOAD_TIMEOUT_MS = 60_000;
-export const DEFAULT_DOWNLOAD_MAX_BYTES = 50 * 1024 * 1024;
-export const MAX_REDIRECTS = 5;
+const DEFAULT_DOWNLOAD_TIMEOUT_MS = 60_000;
+const DEFAULT_DOWNLOAD_MAX_BYTES = 50 * 1024 * 1024;
+const MAX_REDIRECTS = 5;
 
-export interface LookupAddress {
+interface LookupAddress {
   readonly address: string;
   readonly family: number;
 }
 
-export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
-export type LookupLike = (hostname: string) => Promise<readonly LookupAddress[]>;
+type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
+type LookupLike = (hostname: string) => Promise<readonly LookupAddress[]>;
 
-export interface DownloadFileDeps {
+interface DownloadFileDeps {
   readonly getAllowedDirectories: () => readonly string[];
   readonly getEnvironment: () => Promise<UserEnvironment>;
   readonly fetchFn?: FetchLike;
@@ -59,9 +59,6 @@ interface ParsedDownloadArgs {
   readonly maxBytes: number;
   readonly timeoutMs: number;
 }
-
-const fail = (message: string, data: Record<string, unknown> = {}): MCPCallResult =>
-  toolResult({ text: message, raw: message, data: { state: "error", truncated: false, ...data }, isError: true });
 
 function parseArgs(
   raw: Record<string, unknown>,

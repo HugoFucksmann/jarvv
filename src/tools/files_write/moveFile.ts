@@ -24,7 +24,7 @@ import {
   type ResolvedTarget,
   tempSuffix,
 } from "../../core/tools/filePaths.ts";
-import { toolResult } from "../../core/tools/result.ts";
+import { toolResult, toolFail as fail } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage, isRecord } from "../../core/utils.ts";
 import {
@@ -36,7 +36,7 @@ import {
 
 export const MAX_MOVE_ITEMS = 200;
 
-export interface MoveFileDeps {
+interface MoveFileDeps {
   readonly getAllowedDirectories: () => readonly string[];
   readonly getEnvironment: () => Promise<UserEnvironment>;
   readonly now: () => number;
@@ -57,9 +57,6 @@ interface MoveItemOutcome {
   readonly status: "moved" | "failed";
   readonly message?: string;
 }
-
-const fail = (message: string, data: Record<string, unknown> = {}): MCPCallResult =>
-  toolResult({ text: message, raw: message, data: { state: "error", truncated: false, ...data }, isError: true });
 
 const cancelledResult = (moved: number): MCPCallResult =>
   toolResult({ text: "status: cancelled", raw: "", data: { state: "cancelled", moved, truncated: false } });
@@ -228,12 +225,8 @@ class OverwriteBackup {
 
   constructor(private readonly targetPath: string) {}
 
-  /** Aparta el destino actual (un enlace simplemente se quita). */
-  async setAside(isSymlink: boolean): Promise<void> {
-    if (isSymlink) {
-      await fs.promises.unlink(this.targetPath);
-      return;
-    }
+  /** Aparta el destino actual (también un enlace simbólico: se renombra el enlace, no su destino), para poder restaurarlo si el movimiento falla. */
+  async setAside(): Promise<void> {
     this.backupPath = `${this.targetPath}.jarvis-bak-${tempSuffix()}`;
     await fs.promises.rename(this.targetPath, this.backupPath);
   }
@@ -285,7 +278,7 @@ async function moveSingleItem(
 
   const backup = new OverwriteBackup(dst.targetPath);
   try {
-    if (destination.status === "exists" && overwrite && src.isDirectory) await backup.setAside(destination.isSymlink);
+    if (destination.status === "exists" && overwrite && src.isDirectory) await backup.setAside();
     return await backup.settle(await renameOrCopy(plan, overwrite, deps, allowedDirs, deadline, signal));
   } catch (error) {
     return backup.settle(failedMove(src.targetPath, dst.targetPath, errorMessage(error)));

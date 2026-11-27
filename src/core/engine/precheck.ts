@@ -83,7 +83,7 @@ export function normalizeText(text: string): string {
   return text.split("\\").join("/").toLowerCase();
 }
 
-export type Role = "path" | "url" | "command" | "text";
+type Role = "path" | "url" | "command" | "text";
 
 const SOURCE_KEYS = new Set(["source", "src", "from"]);
 /** Claves cuyo valor puede ser vacío a propósito (un archivo vacío, una tecla Enter). */
@@ -405,19 +405,19 @@ export const analyzePowerShell: CommandAnalyzer = async (command) => {
 // entorno (`diskIsReal`: un entorno inventado, como el de un caso de prueba, no se juzga); la razón dice qué hacer en su lugar (llega a la línea FAIL del LLM de argumentos).
 
 /** Una regla del pre-chequeo sobre un contexto `C`. Las de valor y de origen son sincrónicas: `firstValueFinding` las evalúa sin `await`. */
-export interface PrecheckRule<C> {
+interface PrecheckRule<C> {
   readonly name: string;
   readonly applies: (ctx: C) => boolean;
   readonly check: (ctx: C) => PrecheckFinding | null;
 }
 
 /** Una regla por llamada: puede ser asincrónica porque algunas analizan el comando con PowerShell (`precheckCall` hace `await`). */
-export interface CallRule<C> extends Omit<PrecheckRule<C>, "check"> {
+interface CallRule<C> extends Omit<PrecheckRule<C>, "check"> {
   readonly check: (ctx: C) => PrecheckFinding | null | Promise<PrecheckFinding | null>;
 }
 
 /** Un valor de texto de un argumento, con lo que las reglas necesitan saber de él. */
-export interface ValueContext {
+interface ValueContext {
   readonly input: PrecheckInput;
   readonly key: string;
   readonly role: Role;
@@ -430,7 +430,7 @@ export interface ValueContext {
   readonly writesIt: boolean;
 }
 
-export interface CallContext {
+interface CallContext {
   readonly input: PrecheckInput;
   readonly analyze: CommandAnalyzer;
 }
@@ -452,7 +452,7 @@ const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
 
 // ── Reglas por valor ──
 
-export const VALUE_RULES: readonly PrecheckRule<ValueContext>[] = [
+const VALUE_RULES: readonly PrecheckRule<ValueContext>[] = [
   {
     name: "empty-value",
     applies: (c) => c.value.trim() === "" && !MAY_BE_EMPTY.has(c.key.toLowerCase()),
@@ -518,7 +518,7 @@ export const VALUE_RULES: readonly PrecheckRule<ValueContext>[] = [
 ];
 
 /** Las reglas de origen: lo que se lee o se usa como destino tiene que salir de algo que la tarea sabe. */
-export const SOURCE_RULES: readonly PrecheckRule<ValueContext>[] = [
+const SOURCE_RULES: readonly PrecheckRule<ValueContext>[] = [
   {
     name: "url-source",
     applies: (c) => c.role === "url",
@@ -579,7 +579,7 @@ const STANDARD_ENV = new Set(
 );
 
 /** El primer `$env:NOMBRE` (o `${env:NOMBRE}`) del comando que no existe en esta PC ni se define en el propio comando, o null. */
-export function unknownEnvVariable(command: string): string | null {
+function unknownEnvVariable(command: string): string | null {
   const defined = new Set<string>();
   for (const m of command.matchAll(/\$(?:env:([\w()]+)|\{env:([^}]+)\})\s*(?:\+|-|\*|\/)?=(?!=)/gi)) defined.add((m[1] ?? m[2]).toLowerCase());
   const present = new Set(Object.keys(process.env).map((k) => k.toLowerCase()));
@@ -594,7 +594,7 @@ export function unknownEnvVariable(command: string): string | null {
 const isPowerShellCommand = (input: PrecheckInput): boolean =>
   input.tool === "run_command" && typeof input.args.command === "string" && input.environment.platform === "windows";
 
-export const CALL_RULES: readonly CallRule<CallContext>[] = [
+const CALL_RULES: readonly CallRule<CallContext>[] = [
   {
     name: "argument-values",
     applies: () => true,

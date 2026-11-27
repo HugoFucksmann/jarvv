@@ -26,11 +26,11 @@ export const BASE_TEMPERATURE = 0.1;
 export const RETRY_TEMPERATURE = 0.3;
 
 /**
- * Temperatura de la generación de argumentos según cuántos intentos previos de la misma herramienta en el mismo paso no se aprobaron: 0,1 el primero, 0,3 el
- * segundo y 0,5 desde el tercero. Un modelo chico con temperatura baja repite el mismo comando aunque se le muestre su error (traza del 2026-11-09, cuatro
+ * Temperatura de una consulta que se repite porque la anterior no sirvió (argumentos de la misma herramienta en el mismo paso, o la lista de pendientes tras un
+ * ítem reescrito idéntico): 0,1 el primero, 0,3 el segundo y 0,5 desde el tercero. Un modelo chico con temperatura baja repite el mismo comando aunque se le muestre su error (traza del 2026-11-09, cuatro
  * repeticiones idénticas); un poco más de temperatura le da otra salida sin volverlo errático. Es independiente del reintento por salida inválida (`RETRY_TEMPERATURE`).
  */
-export const argsTemperature = (priorAttempts: number): number => (priorAttempts <= 0 ? BASE_TEMPERATURE : priorAttempts === 1 ? RETRY_TEMPERATURE : 0.5);
+export const escalatedTemperature = (priorAttempts: number): number => (priorAttempts <= 0 ? BASE_TEMPERATURE : priorAttempts === 1 ? RETRY_TEMPERATURE : 0.5);
 export const RETRY_TOKEN_FACTOR = 1.5;
 export const TRUNCATED = "la salida se truncó por el límite de tokens";
 
@@ -51,7 +51,7 @@ export interface StageRequest {
 }
 
 /** Parte de la configuración que fija tokens y thinking por etapa. */
-export type StageConfig = Pick<JarvisConfig, "qwenMaxTokens" | "thinking">;
+type StageConfig = Pick<JarvisConfig, "qwenMaxTokens" | "thinking">;
 
 /** Claves del paso en el contrato con el LLM (PlanStepWire): `satisfies` obliga a que schema y tipo coincidan. */
 const STEP_WIRE_PROPERTIES = {
@@ -104,7 +104,7 @@ export function argumentsStageRequest(input: ArgsFromViewInput, config: StageCon
     json: true,
     maxTokens: config.qwenMaxTokens.arguments,
     thinking: false,
-    temperature: argsTemperature(input.priorAttempts ?? 0),
+    temperature: escalatedTemperature(input.priorAttempts ?? 0),
   };
 }
 
@@ -126,6 +126,7 @@ export function pendingStageRequest(input: PendingFromViewInput, prompts: Prompt
     stage: "pending",
     system: prompts.PENDING_VIEW.SYSTEM,
     user: prompts.PENDING_VIEW.buildUserPrompt(input),
+    temperature: escalatedTemperature(input.priorRewrites ?? 0),
     json: true,
     schema: {
       type: "object",

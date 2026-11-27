@@ -3,7 +3,7 @@
 export const esc = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 /** Tope de caracteres de un mensaje de Telegram (4096) con margen para las etiquetas HTML. */
-export const MESSAGE_MAX = 3500;
+const MESSAGE_MAX = 3500;
 
 export function mdToHtml(md: string): string {
   const blocks: string[] = [];

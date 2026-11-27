@@ -57,6 +57,8 @@ export interface RouteViewOptions extends WindowOptions {
 export interface ReviewViewOptions extends WindowOptions {
   /** Últimas lecturas aprobadas que muestra la vista (`BUDGET.caps.lastReads`): no depende de las escalaciones. */
   readonly lastReads: number;
+  /** Si se indica, las lecturas que muestra la vista son estas (por id, en orden cronológico) en lugar de las últimas `lastReads`: las elige `engine/readSelection.ts`. */
+  readonly readIds?: readonly string[];
 }
 
 export interface ArgsViewOptions extends ReviewViewOptions {
@@ -87,10 +89,6 @@ export interface CallView {
   readonly status: CallStatus;
   readonly verdict: CallVerdict | null;
   readonly reason: VerdictReason | null;
-  /** Frase fija según el `status` (`null` con `ok`). */
-  readonly statusNote: string | null;
-  /** Frase fija según el `reason` (`null` si no hay rechazo del verificador). */
-  readonly reasonNote: string | null;
   /** Fallo de llamada (5.4): `status` distinto de `ok` o `verdict = rejected`. */
   readonly failed: boolean;
   /** `args` de la llamada; solo donde la vista muestra lo que se quiso ejecutar (si no, `null`). */
@@ -286,12 +284,10 @@ export interface PendingView {
   readonly env: readonly FactView[];
 }
 
-/** Estado de la tarea con su frase fija (`note`). */
+/** Estado de la tarea y su motivo de detención. */
 export interface TaskView {
   readonly state: TaskState;
   readonly stopReason: StopReason | null;
-  /** Frase fija del estado y del motivo de detención. */
-  readonly note: string;
 }
 
 /**

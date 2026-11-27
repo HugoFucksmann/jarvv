@@ -63,8 +63,6 @@ export function obsBlock(label: string, lines: readonly string[]): string | null
 export function callHead(call: CallView): string {
   const parts = [`${call.id} ${call.stepId} ${oneLine(call.route)}/${oneLine(call.tool)} ${call.kind} ${call.status}`];
   if (call.verdict !== null) parts.push(`verdict=${call.verdict}`);
-  if (call.statusNote !== null) parts.push(`— ${call.statusNote}`);
-  if (call.reasonNote !== null) parts.push(`— ${call.reasonNote}`);
   return parts.join(" ");
 }
 
@@ -96,7 +94,7 @@ export function factLine(fact: FactView): string {
 }
 
 /** Entrada del usuario: tipo, paso y texto en una línea. */
-export function userInputLine(input: UserInputView): string {
+function userInputLine(input: UserInputView): string {
   return `${input.kind} ${input.stepId}: ${oneLine(input.text)}`;
 }
 
@@ -119,7 +117,7 @@ export function readEntry(call: CallView, caps: ViewCaps, argsMax: number = caps
 }
 
 /** Topes de `args` y de resumen de una línea de fallo. */
-export interface FailureLimits {
+interface FailureLimits {
   readonly args: number;
   readonly summary: number;
 }

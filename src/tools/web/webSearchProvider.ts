@@ -30,9 +30,9 @@ import { runDownloadFile } from "./downloadFile.ts";
 import { callWithDeadline, DeadlineError, FormatError, ToolBudgetError, toolBudgetMessage } from "./hostCall.ts";
 import { parseFetch, parseReadDoc, parseSearch, type Doc, type Material, type Source } from "./report.ts";
 
-export const WEB_SERVER = "jarvis_web";
-export const WEB_SEARCH = "web_search";
-export const DOWNLOAD_FILE = "download_file";
+const WEB_SERVER = "jarvis_web";
+const WEB_SEARCH = "web_search";
+const DOWNLOAD_FILE = "download_file";
 
 /** Las herramientas de otro proveedor que usa por dentro: lo único que el `ToolHost` le deja llamar. */
 export const WEB_DEPENDENCIES: readonly ToolRef[] = [
@@ -42,11 +42,11 @@ export const WEB_DEPENDENCIES: readonly ToolRef[] = [
 ];
 
 /** Antigüedad máxima de la caché de Free Search (por defecto guarda 7 días). */
-export const DEFAULT_MAX_AGE_HOURS = 24;
+const DEFAULT_MAX_AGE_HOURS = 24;
 /** Resultados que pide a `search` (los extractos se puntúan todos; las páginas se leen de a una). */
-export const SEARCH_RESULTS = 8;
+const SEARCH_RESULTS = 8;
 /** Páginas que se leen como máximo cuando ningún extracto responde (de a una, empezando por la del mejor extracto). Sin juez se leen las 3 primeras a la vez. */
-export const DEFAULT_PAGES = 3;
+const DEFAULT_PAGES = 3;
 /**
  * Con modelo: probabilidad desde la que un fragmento responde (`found`) o responde en parte (`partial`). `found` en 0,5 y no en 0,6: en los datasets del juez (84 fragmentos) rinde igual
  * o un error menos (6 contra 7) y, medido con 0,45, no cambia; por debajo de 0,1 casi no hay fragmentos que respondan (3 %) y por encima de 0,9 responden el 91 %.
@@ -54,11 +54,11 @@ export const DEFAULT_PAGES = 3;
 export const JUDGE_FOUND = 0.5;
 export const JUDGE_PARTIAL = 0.3;
 /** Sin modelo (o si falla): fracción de las palabras de la pregunta que debe tener el fragmento. Coincidir en palabras no es responder: sin modelo el estado no pasa de `partial`. */
-export const COVERAGE_PARTIAL = 0.34;
+const COVERAGE_PARTIAL = 0.34;
 /** Fragmentos que se devuelven como máximo, y caracteres que ocupan entre todos. */
-export const RETURN_MAX = 4;
+const RETURN_MAX = 4;
 const PASSAGES_BUDGET = 1700;
-export const DEFAULT_TIMEOUT_MS = 150_000;
+const DEFAULT_TIMEOUT_MS = 150_000;
 const DEFAULT_JUDGE_TIMEOUT_MS = TIMEOUT_DEFAULTS.webJudgeMs;
 const SAFETY_MARGIN_MS = FIXED_TIMEOUTS.safetyMarginMs;
 /** Tiempo que debe quedar para el reintento sin filtros y para el modelo. */
@@ -199,7 +199,7 @@ interface Deadline {
   readonly limitMs: number;
 }
 
-export interface WebSearchOptions {
+interface WebSearchOptions {
   /** Cliente del modelo de decisión para puntuar fragmentos; se consulta en cada llamada (la configuración puede cambiar). Sin él, solo BM25. */
   readonly judge?: () => FragmentJudge | undefined;
   readonly maxAgeHours?: number;

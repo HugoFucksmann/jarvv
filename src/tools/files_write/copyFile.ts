@@ -24,7 +24,7 @@ import {
   yieldEventLoop,
   pathFailureData,
 } from "../../core/tools/filePaths.ts";
-import { cancelledResult, toolResult } from "../../core/tools/result.ts";
+import { cancelledResult, toolResult, toolFail as fail } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
 
@@ -33,7 +33,7 @@ export const DEFAULT_COPY_MAX_ENTRIES = 20_000;
 export const DEFAULT_COPY_MAX_BYTES = 512 * 1024 * 1024;
 const YIELD_EVERY_ENTRIES = 64;
 
-export interface CopyFileDeps {
+interface CopyFileDeps {
   readonly getAllowedDirectories: () => readonly string[];
   readonly getEnvironment: () => Promise<UserEnvironment>;
   readonly now: () => number;
@@ -49,19 +49,16 @@ interface ParsedCopyArgs {
   readonly recursive: boolean;
 }
 
-export interface CopyTreeResult {
+interface CopyTreeResult {
   readonly ok: true;
   readonly filesCopied: number;
   readonly dirsCreated: number;
   readonly bytesCopied: number;
 }
 
-export type CopyTreeOutcome =
+type CopyTreeOutcome =
   | CopyTreeResult
   | { readonly ok: false; readonly cancelled?: boolean; readonly denied?: boolean; readonly message: string };
-
-const fail = (message: string, data: Record<string, unknown> = {}): MCPCallResult =>
-  toolResult({ text: message, raw: message, data: { state: "error", truncated: false, ...data }, isError: true });
 
 function parseArgs(
   raw: Record<string, unknown>,

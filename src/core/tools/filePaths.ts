@@ -23,7 +23,7 @@ import { isPathArgKey, PATH_LIST_KEY } from "../policy/pathArgs.ts";
 import { errorMessage } from "../utils.ts";
 
 export const KNOWN_ALIASES = ["home", "desktop", "documents", "downloads"] as const;
-export type KnownAlias = (typeof KNOWN_ALIASES)[number];
+type KnownAlias = (typeof KNOWN_ALIASES)[number];
 
 /**
  * Carpetas excluidas por defecto durante recorridos descendentes de búsqueda/copia:
@@ -32,7 +32,7 @@ export type KnownAlias = (typeof KNOWN_ALIASES)[number];
  * - `system volume information`: metadatos protegidos de volúmenes NTFS.
  * - `windows/winsxs`: almacén de componentes de Windows.
  */
-export const EXCLUDED_DIR_NAMES: ReadonlySet<string> = new Set([
+const EXCLUDED_DIR_NAMES: ReadonlySet<string> = new Set([
   "node_modules",
   ".git",
   "$recycle.bin",
@@ -47,7 +47,7 @@ export function isExcludedSubdir(dirName: string, fullPath: string): boolean {
   return normalized.endsWith("/windows/winsxs");
 }
 
-export type ResolvedFolder =
+type ResolvedFolder =
   | { readonly ok: true; readonly targetPath: string; readonly realRoot: string }
   | { readonly ok: false; readonly denied: boolean; readonly message: string };
 
@@ -114,7 +114,7 @@ export function dirnameOf(targetPath: string): string {
 }
 
 /** Normaliza una ruta absoluta (Windows o POSIX) quitando prefijos extendidos. */
-export function normalizeAbsolutePath(candidate: string): string {
+function normalizeAbsolutePath(candidate: string): string {
   const clean = stripExtendedPrefix(candidate);
   return isWinPath(clean) ? path.win32.normalize(clean.replace(/\//g, "\\")) : path.resolve(clean);
 }
@@ -437,7 +437,7 @@ export async function resolveExistingPath(
   };
 }
 
-export type DestinationInspection =
+type DestinationInspection =
   | { readonly status: "missing" }
   | {
       readonly status: "exists";
@@ -539,7 +539,7 @@ export function effectiveTimeoutMs(defaultMs: number, optionTimeoutMs?: number, 
 export const tempSuffix = (): string => `${process.pid}-${Date.now()}-${randomUUID().slice(0, 8)}`;
 
 /** Cuántos bytes del comienzo de un archivo se miran para decidir si es binario. */
-export const BINARY_PROBE_BYTES = 8_192;
+const BINARY_PROBE_BYTES = 8_192;
 
 /** ¿Estos bytes parecen de un archivo binario? Un byte NUL en el primer bloque (`BINARY_PROBE_BYTES`) lo delata. */
 export const looksBinary = (bytes: Uint8Array): boolean => bytes.subarray(0, BINARY_PROBE_BYTES).includes(0);

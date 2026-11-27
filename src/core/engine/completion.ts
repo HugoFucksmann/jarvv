@@ -15,6 +15,7 @@
 import { completionInput } from "./adapters.ts";
 import type { EngineEnv } from "./env.ts";
 import { closeOnFailure, pauseOf, queryModel } from "./failures.ts";
+import { findRequirementGaps } from "./requirements.ts";
 
 /** Probabilidad mínima de `request_complete` para cerrar sin consultar al LLM (eval/exp/close_check.ts: 31/36 a 0,75; a 0,9 los falsos "no" se multiplican). */
 export const COMPLETION_APPROVE = 0.75;
@@ -40,14 +41,24 @@ export function uncoveredArtifacts(request: string, calls: readonly { readonly a
   return named.filter((n) => !haystack.includes(n));
 }
 
-export type CompletionOutcome =
+type CompletionOutcome =
   | { readonly kind: "complete" }
-  | { readonly kind: "incomplete" }
+  /** `gaps`: los pasos que cierran lo que el libro de requisitos halló sin cubrir (`engine/requirements.ts`); sin ellos, rige la confirmación de siempre. */
+  | { readonly kind: "incomplete"; readonly gaps?: readonly string[] }
   | { readonly kind: "close"; readonly stopReason: "unrecoverable" }
   | { readonly kind: "cancelled" };
 
-/** ¿La solicitud está cumplida con lo hecho? `incomplete` ante la duda; si Decision falla tras la pausa (§6.1), cierra `unrecoverable`. */
-export async function confirmCompletion(env: EngineEnv): Promise<CompletionOutcome> {
+/** Los requisitos de la solicitud (la primera lista de pendientes) y si la lista todavía puede reabrirse; con ellos el cierre consulta el libro de requisitos. */
+interface RequirementsLedger {
+  readonly requirements: readonly string[];
+  readonly canReopen: boolean;
+}
+
+/**
+ * ¿La solicitud está cumplida con lo hecho? `incomplete` ante la duda; si Decision falla tras la pausa (§6.1), cierra `unrecoverable`. Con el libro de requisitos
+ * (`ledger`), aun con Decisión 5 segura de que está cumplida, un requisito sin datos o sin volcar al entregable impide cerrar y devuelve el paso que lo cubre.
+ */
+export async function confirmCompletion(env: EngineEnv, ledger: RequirementsLedger | null = null): Promise<CompletionOutcome> {
   const { ctx, runtime } = env;
   env.state.lastCompletion = null;
   if (ctx.task.mode !== "reactive" || ctx.canFinish() !== "completed") return { kind: "incomplete" };
@@ -73,5 +84,10 @@ export async function confirmCompletion(env: EngineEnv): Promise<CompletionOutco
   }
   if (runtime.cancelled || ctx.isClosed()) return { kind: "cancelled" };
   env.state.lastCompletion = query.value.requestComplete;
+  if (ledger !== null && ledger.canReopen) {
+    const gaps = await findRequirementGaps(env, ledger.requirements);
+    if (runtime.cancelled || ctx.isClosed()) return { kind: "cancelled" };
+    if (gaps.length > 0) return { kind: "incomplete", gaps };
+  }
   return { kind: query.value.requestComplete >= COMPLETION_APPROVE ? "complete" : "incomplete" };
 }

@@ -215,6 +215,64 @@ export type RecoveryDecision = Omit<DecisionTrace, "probabilities"> & { readonly
 /** Decisión 5: probabilidad de que la solicitud completa ya esté cumplida con lo hecho, sin umbral aplicado: el cierre es de `confirmCompletion` (`engine/completion.ts`). */
 export type CompletionDecision = Omit<DecisionTrace, "probabilities"> & { readonly requestComplete: number };
 
+/**
+ * Libro de requisitos (cierre del reactivo): los requisitos de la solicitud fijados al empezar (la primera lista de pendientes) y la evidencia contra la que se pregunta,
+ * separada porque cada pregunta lleva solo la suya (el servidor repite el estado por cada pregunta, y un texto con lo que no hace falta confunde a un modelo chico):
+ * `reads` (lo que trajeron las lecturas) y `deliverable` (el estado del archivo escrito en la tarea, o `null` si no hay).
+ */
+export interface RequirementsDecisionInput {
+  readonly requirements: readonly string[];
+  readonly request: string;
+  readonly reads: string;
+  readonly deliverable: string | null;
+}
+
+/** Lo que dice el modelo de un requisito, sin umbral: `info` = probabilidad de que pida buscar información; `gathered` = probabilidad de que las lecturas la traigan; `delivered` = masa de los niveles altos del `score` del entregable (`null` sin entregable). */
+export interface RequirementVerdict {
+  readonly info: number;
+  readonly gathered: number;
+  readonly delivered: number | null;
+}
+
+export type RequirementsDecision = Omit<DecisionTrace, "probabilities"> & { readonly items: readonly RequirementVerdict[] };
+
+/**
+ * Dependencias entre ítems de la lista (reactivo): tras un ítem fallido, cuáles de los que quedan detrás necesitan su resultado. `blocked` es el ítem fallido e `items` los
+ * que siguen; `request` es la solicitud (contexto de la pregunta).
+ */
+export interface DependencyDecisionInput {
+  readonly request: string;
+  readonly blocked: string;
+  readonly items: readonly string[];
+}
+
+/** `dependent[i]` es la probabilidad de que `items[i]` necesite el resultado del ítem fallido; sin umbral: lo aplica `engine/dependencies.ts`. */
+export type DependencyDecision = Omit<DecisionTrace, "probabilities"> & { readonly dependent: readonly number[] };
+
+/**
+ * Elección de lecturas (reactivo): cuáles de las lecturas hechas sirven a un paso. `task` es la instrucción del paso y `reads` las lecturas candidatas, cada una con su
+ * etiqueta (`c5 web_search {...}`) y el comienzo de su resultado.
+ */
+export interface ReadSelectionInput {
+  readonly task: string;
+  readonly reads: readonly { readonly label: string; readonly text: string }[];
+}
+
+/** `relevance[i]` es la probabilidad de que `reads[i]` traiga información que el paso necesita; sin umbral: lo aplica `engine/readSelection.ts`. */
+export type ReadSelectionDecision = Omit<DecisionTrace, "probabilities"> & { readonly relevance: readonly number[] };
+
+/**
+ * Cobertura de la primera lista (modo sombra): si la lista de pendientes que armó el modelo cubre todo lo que pide la solicitud. El modelo generativo a veces junta varias
+ * partes en un ítem y pierde una («crea un md y recopila la información» quedó como «crear un md con información»).
+ */
+export interface CoverageDecisionInput {
+  readonly request: string;
+  readonly list: readonly string[];
+}
+
+/** `covers` es la probabilidad de que la lista cubra la solicitud; sin umbral: por ahora solo se registra (`engine/coverageShadow.ts`). */
+export type CoverageDecision = Omit<DecisionTrace, "probabilities"> & { readonly covers: number };
+
 /** La tarea anterior para el hilo (`engine/thread.ts`): su pedido y el comienzo de su respuesta. */
 export interface PreviousTask {
   readonly request: string;
@@ -257,6 +315,14 @@ export interface IActionDecision {
   verifyResult(input: VerifyDecisionInput, signal?: AbortSignal): Promise<VerifyDecision>;
   /** Decisión 5: con la lista de pendientes vacía, ¿la solicitud completa ya está cumplida? (reactivo; reemplaza a la confirmación del LLM cuando responde que sí) */
   checkCompletion(input: CompletionDecisionInput, signal?: AbortSignal): Promise<CompletionDecision>;
+  /** Libro de requisitos: qué requisitos de la solicitud no tienen datos o no llegaron al entregable. Opcional: una implementación sin ella deja el cierre como estaba. */
+  checkRequirements?(input: RequirementsDecisionInput, signal?: AbortSignal): Promise<RequirementsDecision>;
+  /** Dependencias entre ítems: tras un ítem fallido, cuáles de los de atrás necesitan su resultado. Opcional: sin ella, el fallo que el modelo "salta" cierra la tarea como antes. */
+  checkDependencies?(input: DependencyDecisionInput, signal?: AbortSignal): Promise<DependencyDecision>;
+  /** Elección de lecturas: cuáles de las lecturas hechas sirven a un paso. Opcional: sin ella, las vistas muestran las últimas lecturas como siempre. */
+  selectReads?(input: ReadSelectionInput, signal?: AbortSignal): Promise<ReadSelectionDecision>;
+  /** Cobertura de la primera lista de pendientes (modo sombra: solo se registra). Opcional. */
+  checkCoverage?(input: CoverageDecisionInput, signal?: AbortSignal): Promise<CoverageDecision>;
   /**
    * D0, primera consulta de una tarea reactiva: ¿charla, una acción o varias? Opcional: una implementación sin ella deja la tarea en el flujo de siempre.
    */
@@ -277,7 +343,7 @@ export interface ArgsFromViewInput {
   readonly environment: UserEnvironment;
   /** Texto de `renderArgs(ctx.view.forArgs(...))`. */
   readonly view: string;
-  /** Intentos previos de esta herramienta en este paso que no se aprobaron; sube la temperatura (`argsTemperature`). Por defecto 0. */
+  /** Intentos previos de esta herramienta en este paso que no se aprobaron; sube la temperatura (`escalatedTemperature`). Por defecto 0. */
   readonly priorAttempts?: number;
 }
 
@@ -336,6 +402,8 @@ export interface PendingFromViewInput {
   readonly view: string;
   /** La tarea anterior, si el pedido la continúa. */
   readonly thread?: PreviousTask;
+  /** Veces que la lista salió idéntica a la del ítem fallido en esta recuperación; sube la temperatura (`escalatedTemperature`). Por defecto 0. */
+  readonly priorRewrites?: number;
 }
 
 /** Lista de pendientes ya validada (textos no vacíos): el primero es la instrucción del paso; vacía = nada por hacer. */

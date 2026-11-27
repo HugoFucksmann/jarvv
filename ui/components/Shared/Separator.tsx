@@ -1,6 +1,6 @@
 import type React from "react";
 
-export interface SeparatorProps {
+interface SeparatorProps {
     className?: string;
 }
 

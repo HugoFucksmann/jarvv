@@ -8,13 +8,13 @@
  */
 
 import type { StepFailureCause } from "./outcomes.ts";
-import { itemKey, reconcileList, sameItem, sameNormalizedText } from "./pendingList.ts";
+import { exactlyDistinct, itemKey, reconcileList, sameItem, sameNormalizedText } from "./pendingList.ts";
 
 /** Reaperturas de la lista por tarea cuando Decisión 5 dice con seguridad que falta algo. */
 export const MAX_REOPENS = 2;
 
 /** `identical_retry`: el modelo repitió el ítem fallido y se acepta UN reintento idéntico porque la falla fue informativa para el generador de argumentos (`canRetryIdentical`; el resto cierra la tarea). */
-export type ModelListTransition = "accepted" | "identical_retry" | "identical_rewrite" | "no_replacement" | "skips_failed_item";
+type ModelListTransition = "accepted" | "identical_retry" | "identical_rewrite" | "no_replacement" | "skips_failed_item";
 
 export class ReactiveList {
   /** Lo que falta; el primer ítem es la instrucción del paso. */
@@ -33,6 +33,8 @@ export class ReactiveList {
   private failStreak = 0;
   /** Veces que Decisión 5 reabrió la lista tras vaciarla `reconcileList`. */
   private reopens = 0;
+  /** Ítems fallidos (por texto normalizado) que ya se difirieron una vez: un segundo fallo cierra. */
+  private readonly deferred = new Set<string>();
 
   /** La lista actual (de solo lectura). */
   get pending(): readonly string[] {
@@ -41,6 +43,59 @@ export class ReactiveList {
 
   get isEmpty(): boolean {
     return this.items.length === 0;
+  }
+
+  /** El ítem que acaba de fallar y espera reescritura (`null` en inicio o confirmación D5). */
+  get failedItem(): string | null {
+    return this.failedHead;
+  }
+
+  /** Los ítems que vienen detrás del de adelante. */
+  get laterItems(): readonly string[] {
+    return this.items.slice(1);
+  }
+
+  /** ¿El ítem fallido todavía puede diferirse? Una sola vez por ítem. */
+  get canDefer(): boolean {
+    return this.failedHead !== null && !this.deferred.has(itemKey(this.failedHead));
+  }
+
+  /**
+   * El ítem fallido no se abandona ni cierra la tarea: se difiere detrás de los ítems que no lo necesitan (`dependent[i]`: el `i`-ésimo de `laterItems` necesita su
+   * resultado), y los que sí lo necesitan quedan detrás de él. El código conserva el orden de los demás ítems; no usa la lista del modelo, que omitió el fallido. `false`,
+   * sin cambios, si ya se difirió una vez, si el veredicto no corresponde a los ítems o si todos dependen de él (no hay con qué seguir).
+   */
+  deferFailed(dependent: readonly boolean[]): boolean {
+    const failed = this.failedHead;
+    const later = this.items.slice(1);
+    if (failed === null || !this.canDefer || dependent.length !== later.length) return false;
+    const independent = later.filter((_, i) => !dependent[i]);
+    if (independent.length === 0) return false;
+    this.items = [...independent, failed, ...later.filter((_, i) => dependent[i])];
+    this.deferred.add(itemKey(failed));
+    this.failedHead = null;
+    this.failedCause = null;
+    this.failStreak = 0;
+    return true;
+  }
+
+  /** ¿Quedan reaperturas de la lista por tarea? (Decisión 5 y el libro de requisitos comparten el tope.) */
+  get canReopen(): boolean {
+    return this.reopens < MAX_REOPENS;
+  }
+
+  /**
+   * Reabre la lista con pasos que dio el código (los huecos del libro de requisitos), sin consultar al modelo de pendientes. `false` si no hay pasos o ya no quedan
+   * reaperturas: la lista no cambia.
+   */
+  reopenWith(items: readonly string[]): boolean {
+    if (items.length === 0 || this.reopens >= MAX_REOPENS) return false;
+    this.items = [...items];
+    this.reopens++;
+    this.asking = false;
+    this.failedHead = null;
+    this.failedCause = null;
+    return true;
   }
 
   /** El ítem de adelante: la instrucción del próximo paso. */
@@ -102,9 +157,11 @@ export class ReactiveList {
     }
 
     const previous = this.items;
-    this.items = reconcileList(modelList, previous, this.done);
+    // La primera lista del modelo es el pedido descompuesto: no hay nada cumplido ni previo con qué compararla, así que solo se quita lo literalmente repetido. Con `sameItem`,
+    // «hospedaje en Buenos Aires» y «pasajes hacia Buenos Aires» pasaban por duplicados (comparten el lugar y el ítem corto queda «cubierto»), y la tarea perdía partes del pedido.
+    this.items = previous.length === 0 && this.done.length === 0 ? exactlyDistinct(modelList) : reconcileList(modelList, previous, this.done);
     if (this.items.length === 0 && modelList.length > 0 && this.reopens < MAX_REOPENS && incompleteBefore) {
-      const fresh = modelList.filter((item) => !this.done.includes(item));
+      const fresh = modelList.filter((item) => !this.done.some((d) => sameNormalizedText(d, item)));
       if (fresh.length > 0) {
         this.items = fresh;
         this.reopens++;

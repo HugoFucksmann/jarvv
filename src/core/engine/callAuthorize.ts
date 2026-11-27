@@ -29,7 +29,7 @@ import { analyzePowerShell, collectSources, precheckCall } from "./precheck.ts";
 import type { CommandReport } from "./precheck.ts";
 import { inputAnswersProcess } from "./retries.ts";
 
-export type GuardVerdict = ReturnType<typeof Guard.evaluate>;
+type GuardVerdict = ReturnType<typeof Guard.evaluate>;
 
 /** Lo que ve el modelo cuando el Guard deniega una llamada: que no se ejecutó, el motivo de la regla y que siga por otro camino. */
 export function policyDenialNote(reason: string | undefined): string {
@@ -61,7 +61,7 @@ export interface PolicyFacts {
 }
 
 /** El resultado de `evaluatePolicy` cuando no rechaza. */
-export type PolicyVerdict = PolicyFacts & { readonly kind: "ok" };
+type PolicyVerdict = PolicyFacts & { readonly kind: "ok" };
 
 /**
  * Política (fases 6 y 6a). `DENY` de Guard (comando catastrófico, regla B de las carpetas protegidas): no se ejecuta y queda `tool_rejected` con la razón, como un
@@ -85,7 +85,7 @@ export function evaluatePolicy(call: PreparedCall, environment: UserEnvironment,
 
 // ───────────────────────── ¿Se le pide confirmación al usuario? ─────────────────────────
 
-export interface ConfirmationInput {
+interface ConfirmationInput {
   readonly verdict: PolicyFacts;
   /** `allowedDirectories` no pudo resolver una ruta (con la razón), o `null`. */
   readonly allowedUnresolvableReason: string | null;
@@ -112,14 +112,14 @@ function toolPathArgs(args: Readonly<Record<string, unknown>>): string[] {
   return pathValuesOf(args);
 }
 
-export type ArgsCheck = Rejection | { readonly kind: "cancelled" } | { readonly kind: "ok"; readonly allowedUnresolvableReason: string | null };
+type ArgsCheck = Rejection | { readonly kind: "cancelled" } | { readonly kind: "ok"; readonly allowedUnresolvableReason: string | null };
 
 /**
  * Fases 6b y 6c. Pre-chequeo determinista (sin modelo): lo comprobable se rechaza con una razón escrita que llega al LLM de argumentos. Después, `allowedDirectories`
  * en vivo para todas las herramientas, incluido `run_command` (cwd + rutas del AST de PowerShell): lo fuera de alcance se rechaza; lo que no se puede resolver
  * obliga a pedir confirmación al usuario (`allowedUnresolvableReason`).
  */
-export async function checkCallArgs(env: EngineEnv, call: PreparedCall, environment: UserEnvironment): Promise<ArgsCheck> {
+async function checkCallArgs(env: EngineEnv, call: PreparedCall, environment: UserEnvironment): Promise<ArgsCheck> {
   const { ctx, runtime, deps } = env;
   const { kind, resolved } = call;
   const toolName = call.tool.name;
@@ -203,7 +203,7 @@ export interface Authorization extends PolicyFacts {
   readonly askUser: boolean;
 }
 
-export type AuthorizeResult = Rejection | { readonly kind: "cancelled" } | Authorization;
+type AuthorizeResult = Rejection | { readonly kind: "cancelled" } | Authorization;
 
 /** Fases 6 a 6c y la decisión de confirmar. No registra nada ni pide nada al usuario: eso es de `runCall`. */
 export async function authorize(env: EngineEnv, call: PreparedCall, environment: UserEnvironment): Promise<AuthorizeResult> {

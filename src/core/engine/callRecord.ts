@@ -52,7 +52,7 @@ export function fromFailure(env: Pick<EngineEnv, "ctx" | "state">, stepId: strin
 
 // ───────────────────────── Registro de la llamada ─────────────────────────
 
-export interface CallDraft {
+interface CallDraft {
   readonly stepId: string;
   readonly route: ExecutableRoute;
   readonly tool: string;
@@ -86,6 +86,8 @@ export interface PreparedCall {
   readonly resolved: Record<string, unknown>;
   readonly recorded: JsonObject;
   readonly sig: string;
+  /** Las lecturas que vieron el generador de argumentos y, después, la revisión (`engine/readSelection.ts`); sin ellas, las últimas de siempre. */
+  readonly readIds?: readonly string[];
 }
 
 /** Registra la llamada preparada con el `status` dado: con sus `args` y `sig`, sin `ref` salvo que se indique. */

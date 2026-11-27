@@ -12,9 +12,9 @@
 import type { MCPCallResult } from "../types.ts";
 import { isRecord } from "../utils.ts";
 
-export const TOOL_RESULT_SCHEMA = 1;
+const TOOL_RESULT_SCHEMA = 1;
 
-export interface ToolResultParts {
+interface ToolResultParts {
   readonly text: string;
   readonly raw: string;
   readonly data: Readonly<Record<string, unknown>>;
@@ -54,6 +54,10 @@ export function readToolResult(result: MCPCallResult): NativeResult | null {
   const meta = isRecord(result._meta) ? result._meta : {};
   return { text, raw: structured.raw, data: isRecord(structured.data) ? structured.data : {}, meta };
 }
+
+/** Resultado de error estándar de las herramientas nativas: `state: "error"`, con `data` extra opcional. */
+export const toolFail = (message: string, data: Record<string, unknown> = {}): MCPCallResult =>
+  toolResult({ text: message, raw: message, data: { state: "error", truncated: false, ...data }, isError: true });
 
 /** Resultado de una herramienta cancelada por la señal de la tarea antes de empezar o mientras corría: sin contenido y sin error. */
 export const cancelledResult = (): MCPCallResult => toolResult({ text: "status: cancelled", raw: "", data: { state: "cancelled", truncated: false } });

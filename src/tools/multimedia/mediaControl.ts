@@ -15,16 +15,17 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { effectiveTimeoutMs } from "../../core/tools/filePaths.ts";
-import { cancelledResult, toolResult } from "../../core/tools/result.ts";
+import { cancelledResult, toolResult, toolFail as fail } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage, isRecord } from "../../core/utils.ts";
+import { PS_UTF8_PREFIX } from "../psPrefix.ts";
 
 const execFileAsync = promisify(execFile);
 
 export const DEFAULT_MEDIA_CONTROL_TIMEOUT_MS = 8_000;
 export const DEFAULT_SEEK_SECONDS = 10;
 export const MAX_SEEK_SECONDS = 600;
-export const DEFAULT_VOLUME_STEP = 10;
+const DEFAULT_VOLUME_STEP = 10;
 
 export const MEDIA_ACTIONS = [
   "play",
@@ -64,16 +65,12 @@ export interface MediaControlDriver {
   ): Promise<{ readonly nowPlaying?: NowPlayingInfo; readonly volumeLevel?: number; readonly muted?: boolean }>;
 }
 
-export interface MediaControlDeps {
+interface MediaControlDeps {
   readonly driver?: MediaControlDriver;
   readonly platform?: NodeJS.Platform;
   readonly defaultTimeoutMs?: number;
 }
 
-const fail = (message: string, data: Record<string, unknown> = {}): MCPCallResult =>
-  toolResult({ text: message, raw: message, data: { state: "error", truncated: false, ...data }, isError: true });
-
-const PS_UTF8_PREFIX = "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)";
 
 const PS_MEDIA_SESSION_SCRIPT = [
   PS_UTF8_PREFIX,
@@ -195,7 +192,7 @@ const VOLUME_ACTIONS: ReadonlySet<MediaAction> = new Set([
   "toggle_mute",
 ]);
 
-export function createDefaultMediaControlDriver(
+function createDefaultMediaControlDriver(
   platform: NodeJS.Platform = process.platform,
   timeoutMs = DEFAULT_MEDIA_CONTROL_TIMEOUT_MS,
 ): MediaControlDriver {

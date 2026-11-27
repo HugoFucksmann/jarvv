@@ -13,7 +13,7 @@ import type { IMCPServer } from "../mcp/types.ts";
 import { isReadOnlyCall } from "../policy/readOnly.ts";
 import { ContextOverflowError } from "../render/index.ts";
 import { expandPathAliases } from "../tools/filePaths.ts";
-import { getToolPolicy, serverOf, sortByCatalog } from "../tools/manifest.ts";
+import { getToolPolicy, repeatPolicyOf, serverOf, sortByCatalog } from "../tools/manifest.ts";
 import type { MCPTool } from "../types.ts";
 import type { ExecutableRoute } from "../types/routes.ts";
 import { errorMessage } from "../utils.ts";
@@ -22,6 +22,7 @@ import { clipArgs, computeSig } from "./args.ts";
 import { discoverTools } from "./callDiscovery.ts";
 import { CANCELLED, fromFailure, register, registered, summaryText } from "./callRecord.ts";
 import type { Policy, PreparedCall } from "./callRecord.ts";
+import { chooseReads } from "./readSelection.ts";
 import type { EngineEnv } from "./env.ts";
 import { pauseOf, queryModel } from "./failures.ts";
 import type { CallOutcome } from "./outcomes.ts";
@@ -40,7 +41,7 @@ const kindOf = (policy: Policy): CallKind => (policy.mutates ? "write" : "read")
 
 // ───────────────────────── Fases 1 y 2: descubrir y elegir la herramienta ─────────────────────────
 
-export interface SelectedTool {
+interface SelectedTool {
   readonly kind: "selected";
   readonly server: IMCPServer;
   readonly tool: MCPTool;
@@ -82,7 +83,7 @@ export async function selectTool(env: EngineEnv, stepId: string, route: Executab
 
 // ───────────────────────── Fases 3 a 5: argumentos y huella ─────────────────────────
 
-export interface PreparedResult {
+interface PreparedResult {
   readonly kind: "prepared";
   readonly call: PreparedCall;
   /** Datos de esta PC, ya consultados: los necesitan la autorización y los niveles. */
@@ -105,22 +106,35 @@ export async function prepareArgs(env: EngineEnv, stepId: string, route: Executa
   await recordUserMemory(env, `${ctx.task.request}\n${stepText}`, stepId);
   if (runtime.cancelled || ctx.isClosed()) return STOP_CANCELLED;
 
-  const rendered = renderArgsView(ctx, tool.name);
+  // Las lecturas que ve el generador: las que el paso necesita, no solo las últimas (`engine/readSelection.ts`).
+  const readIds = await chooseReads(env, stepText);
+  if (runtime.cancelled || ctx.isClosed()) return STOP_CANCELLED;
+  const rendered = renderArgsView(ctx, tool.name, readIds);
   if (rendered.overflow) {
     // D26, D30: la vista no cabe en su límite; cierre sin `error`.
     console.error(`[Engine] ${new ContextOverflowError("forArgs", BUDGET.caps.effectsReserve, rendered.chars).message}`);
     return stop({ kind: "close", stopReason: "unrecoverable", callId: null });
   }
   const environment = await deps.environment();
+  const generateArgs = (attempts: number) =>
+    queryModel(() => env.llm.generateArgumentsFromView(argsInput(tool, environment, rendered.text, attempts), runtime.signal), pauseOf(env, "llm"));
   // Intentos previos de esta herramienta en este paso que no se aprobaron (rechazados, bloqueados o con error): suben la temperatura.
   // Un `waiting_input` no es un intento fallido: el proceso pidió una respuesta y la llamada siguiente (`{ pid, input }`) necesita precisión, no variedad.
   const priorAttempts = ctx.find("calls", { stepId, tool: tool.name }).filter((c) => c.verdict !== "approved" && c.status !== "waiting_input").length;
+  // Una llamada idéntica a una ya hecha no es una candidata válida (anti-bucle): se vuelve a generar con más temperatura, sin registrar nada, hasta `BUDGET.argsRegenerations`
+  // veces. Si sigue igual, la llamada sale repetida y `runCall` la registra como `loop_blocked`: la herramienta no tiene otra llamada que ofrecer en este paso.
   // Qwen ya reintenta una vez una salida inválida: aquí no se repite.
-  const generation = await queryModel(
-    () => env.llm.generateArgumentsFromView(argsInput(tool, environment, rendered.text, priorAttempts), runtime.signal),
-    pauseOf(env, "llm"),
-  );
-  if (runtime.cancelled || ctx.isClosed()) return STOP_CANCELLED;
+  let regeneration = 0;
+  let generation: Awaited<ReturnType<typeof generateArgs>>;
+  for (; ;) {
+    generation = await generateArgs(priorAttempts + regeneration);
+    if (runtime.cancelled || ctx.isClosed()) return STOP_CANCELLED;
+    if (!generation.ok || regeneration >= BUDGET.argsRegenerations) break;
+    const candidate = expandPathAliases(generation.value.args, environment);
+    const repeated = ctx.isRepeat(tool.name, computeSig(candidate), { policy: repeatPolicyOf(mcp, tool.name, candidate), stepId });
+    if (!repeated) break;
+    regeneration++;
+  }
   if (!generation.ok) {
     if (generation.failure !== "invalid") return stop(fromFailure(env, stepId, generation.failure, generation.error));
     const callId = register(ctx, {
@@ -146,5 +160,5 @@ export async function prepareArgs(env: EngineEnv, stepId: string, route: Executa
 
   // 5. Huella de los argumentos resueltos.
   const sig = computeSig(resolved);
-  return { kind: "prepared", environment, call: { stepId, route, mcp, server, tool, policy, kind, resolved, recorded, sig } };
+  return { kind: "prepared", environment, call: { stepId, route, mcp, server, tool, policy, kind, resolved, recorded, sig, ...(readIds === undefined ? {} : { readIds }) } };
 }

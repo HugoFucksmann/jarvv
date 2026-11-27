@@ -10,13 +10,13 @@
 import fs from "node:fs";
 import type { UserEnvironment } from "../../core/environment.ts";
 import { looksBinary, resolveExistingPath, pathFailureData } from "../../core/tools/filePaths.ts";
-import { cancelledResult, toolResult } from "../../core/tools/result.ts";
+import { cancelledResult, toolResult, toolFail as fail } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
 
 export const DEFAULT_EDIT_MAX_FILE_BYTES = 10 * 1024 * 1024;
 
-export interface EditFileDeps {
+interface EditFileDeps {
   readonly getAllowedDirectories: () => readonly string[];
   readonly getEnvironment: () => Promise<UserEnvironment>;
   readonly maxFileBytes: number;
@@ -29,9 +29,6 @@ interface ParsedEditArgs {
   readonly replaceAll: boolean;
   readonly expectedReplacements?: number;
 }
-
-const fail = (message: string, data: Record<string, unknown> = {}): MCPCallResult =>
-  toolResult({ text: message, raw: message, data: { state: "error", truncated: false, ...data }, isError: true });
 
 function parseArgs(
   raw: Record<string, unknown>,

@@ -13,7 +13,6 @@ import {
   toolErrorSignature,
   limitValues,
   replansExhausted,
-  routeExhausted,
   stepsExhausted,
 } from "../src/core/engine/limits.ts";
 import { newContext } from "./fixtures.ts";
@@ -105,25 +104,6 @@ test("los topes del paso son por paso: las llamadas de otro paso no cuentan", ()
   ctx.apply({ op: "update", target: first, value: { state: "failed" } });
   const second = ctx.apply({ op: "add", target: "steps", value: { planId: null, instruction: "dos", route: null, expected: null } }).ids[0];
   assert.equal(checkStepLimits(ctx, second), null, "el paso nuevo arranca de cero");
-});
-
-// ───────────────────────── Ruta agotada ─────────────────────────
-
-test("routeExhausted: dos rechazos 'no cumple' de esa ruta en el paso la agotan; otra ruta u otro motivo no", () => {
-  const { ctx, stepId } = stepWith({});
-  const add = (route: string, reason: "not_accomplished" | "no_usable_data") => {
-    const id = ctx.apply({ op: "add", target: "calls", value: { stepId, route, tool: "t", kind: "read", args: {}, sig: `${route}${Math.random()}`, status: "ok", summary: null, ref: null } }).ids[0];
-    ctx.apply({ op: "update", target: id, value: { verdict: "rejected", reason } });
-  };
-  add("files", "not_accomplished");
-  assert.equal(routeExhausted(ctx, stepId, "files"), false);
-  add("files", "no_usable_data");
-  assert.equal(routeExhausted(ctx, stepId, "files"), false, "otro motivo no cuenta");
-  add("web", "not_accomplished");
-  assert.equal(routeExhausted(ctx, stepId, "files"), false, "otra ruta no cuenta");
-  add("files", "not_accomplished");
-  assert.equal(routeExhausted(ctx, stepId, "files"), true);
-  assert.equal(routeExhausted(ctx, stepId, "web"), false);
 });
 
 // ───────────────────────── Topes de la tarea ─────────────────────────

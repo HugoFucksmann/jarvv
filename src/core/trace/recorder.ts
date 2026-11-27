@@ -70,6 +70,8 @@ export class TaskTraceRecorder {
   private pendingModels: ModelRecord[] = [];
   private pendingTools: ToolRecord[] = [];
   private currentStep: string | null = null;
+  /** Causa del cierre que informó el motor (`ClosingCapture`), si distingue más que `stopReason`. */
+  private closeCause: string | null = null;
   private lastCall: { id: string; tool: string; status: string } | null = null;
   private readonly unsubscribe: () => void;
   private finished = false;
@@ -88,7 +90,7 @@ export class TaskTraceRecorder {
       this.unsubscribe = () => undefined;
       return;
     }
-    this.sink = { llm: (event) => this.onModel(event), tool: (event) => this.onTool(event) };
+    this.sink = { llm: (event) => this.onModel(event), tool: (event) => this.onTool(event), closing: (event) => void (this.closeCause = event.cause) };
     this.unsubscribe = ctx.on("change", (event) => this.onChange(event));
   }
 
@@ -239,6 +241,7 @@ export class TaskTraceRecorder {
     return {
       config: this.getConfig(),
       snapshot: this.ctx.snapshot(),
+      closeCause: this.closeCause,
       models: [...this.models],
       tools: [...this.tools],
       waits: [...this.waits],
@@ -262,7 +265,7 @@ export class TaskTraceRecorder {
 
   /** Escribe la carpeta de la tarea y su línea en `index.jsonl`. Cede el hilo entre los trabajos pesados (serializar, comprimir). */
   private async write(c: Captured): Promise<void> {
-    const { config, snapshot, models, tools, waits, pauses } = c;
+    const { config, snapshot, models, tools, waits, pauses, closeCause } = c;
     const startedAt = snapshot.task.startedAt;
     const endedAt = Date.now();
 
@@ -279,6 +282,7 @@ export class TaskTraceRecorder {
       startedAt,
       endedAt,
       meta: buildMeta(models, config.qwenModel, config.decisionModel),
+      closeCause,
       queries: models.map(slimQuery),
       tools,
       waits,
@@ -290,7 +294,7 @@ export class TaskTraceRecorder {
     const dir = path.join(base, folder);
     await fs.mkdir(dir, { recursive: true });
 
-    const header = { v: TRACE_FORMAT_VERSION, taskId: snapshot.task.id, startedAt: new Date(startedAt).toISOString(), endedAt: new Date(endedAt).toISOString() };
+    const header = { v: TRACE_FORMAT_VERSION, closeCause, taskId: snapshot.task.id, startedAt: new Date(startedAt).toISOString(), endedAt: new Date(endedAt).toISOString() };
     await fs.writeFile(path.join(dir, "summary.md"), buildSummary(input), "utf-8");
     await yieldToLoop();
     await fs.writeFile(
@@ -310,6 +314,7 @@ export class TaskTraceRecorder {
 interface Captured {
   readonly config: ReturnType<ConfigSource>;
   readonly snapshot: ReturnType<TaskContext["snapshot"]>;
+  readonly closeCause: string | null;
   readonly models: ModelRecord[];
   readonly tools: ToolRecord[];
   readonly waits: WaitRecord[];

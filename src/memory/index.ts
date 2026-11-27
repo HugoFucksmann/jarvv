@@ -11,7 +11,7 @@
 import fs from "node:fs";
 
 /** Un hecho guardado por el usuario. */
-export interface MemoryFact {
+interface MemoryFact {
   readonly key: string;
   readonly value: string;
   readonly aliases?: readonly string[];
@@ -31,8 +31,8 @@ export interface MemoryProvider {
 /** Tope de hechos que se pasan en una misma generación (DN-1.9). */
 export const MAX_FACTS_PER_PROMPT = 3;
 /** Tope de entradas que se leen del archivo y de caracteres por clave y valor: la memoria no puede inflar el prompt. */
-export const MAX_FACTS = 200;
-export const MAX_KEY_CHARS = 80;
+const MAX_FACTS = 200;
+const MAX_KEY_CHARS = 80;
 export const MAX_VALUE_CHARS = 300;
 
 const STOP = new Set(

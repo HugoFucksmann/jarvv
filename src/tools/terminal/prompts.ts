@@ -21,7 +21,7 @@ export const WEAK_PROMPT_IDLE_MS = FIXED_TIMEOUTS.weakPromptIdleMs;
 /** Silencio que necesita una elección o una tecla en una línea ya terminada. */
 export const TERMINATED_PROMPT_IDLE_MS = FIXED_TIMEOUTS.terminatedPromptIdleMs;
 /** Largo máximo de la línea que se toma por prompt. */
-export const PROMPT_MAX_CHARS = 300;
+const PROMPT_MAX_CHARS = 300;
 
 const CHOICE = `(?:y|n|s|a|q|yes|no|si|sí|all|todo)`;
 /** Una elección (`[S/N]`, `(y/n)`, `yes/no`) o una tecla (`Press any key`, `Presione una tecla`). Vale también con salto de línea. */

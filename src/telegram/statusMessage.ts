@@ -18,7 +18,7 @@ export interface StatusSink {
   typing(): Promise<void>;
 }
 
-export interface StatusTiming {
+interface StatusTiming {
   /** Cada cuánto se actualiza, como mucho, el mensaje de progreso. */
   readonly intervalMs: number;
   /** Cada cuánto se repite el aviso «escribiendo…» (en Telegram dura 5 s). */

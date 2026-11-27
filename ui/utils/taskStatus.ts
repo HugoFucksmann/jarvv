@@ -33,7 +33,7 @@ export function formatPausedModelLabel(model: string): string {
   }
 }
 
-export const VERDICT_REASON_LABELS: Record<string, string> = {
+const VERDICT_REASON_LABELS: Record<string, string> = {
   not_accomplished: "No cumple lo esperado",
   no_usable_data: "Sin datos útiles",
   wrong_place: "Ubicación incorrecta",
@@ -106,7 +106,7 @@ export const STEP_STATE_LABELS: Record<StepState, string> = {
 
 export type ActivityStateGroup = "working" | "waiting" | "finished";
 
-export interface ActivityPhrase {
+interface ActivityPhrase {
   stateGroup: ActivityStateGroup;
   label: string;
 }

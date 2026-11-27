@@ -23,7 +23,7 @@ import { pendingInput } from "./adapters.ts";
 import type { EngineEnv } from "./env.ts";
 import { closeOnFailure, pauseOf, queryModel } from "./failures.ts";
 
-export type PendingOutcome =
+type PendingOutcome =
   /** `list` no vacía: `list[0]` es la instrucción del paso. */
   | { readonly kind: "next"; readonly list: readonly string[] }
   /** Nada por hacer: la tarea cierra con `closure`. */
@@ -47,9 +47,11 @@ async function listPending(env: EngineEnv, input: ReturnType<typeof pendingInput
 /** La entrada de `pending` con la tarea anterior, si el pedido la continúa. */
 const withThread = (input: ReturnType<typeof pendingInput>, thread: PreviousTask | null): ReturnType<typeof pendingInput> => (thread === null ? input : { ...input, thread });
 
-export async function generatePending(env: EngineEnv, previous: readonly string[]): Promise<PendingOutcome> {
+/** `priorRewrites`: cuántas veces seguidas la lista volvió idéntica al ítem fallido; el modelo recibe la misma entrada y solo cambia su temperatura. */
+export async function generatePending(env: EngineEnv, previous: readonly string[], priorRewrites = 0): Promise<PendingOutcome> {
   const { ctx } = env;
-  const input = withThread(pendingInput(ctx, previous), env.state.thread);
+  const base = withThread(pendingInput(ctx, previous), env.state.thread);
+  const input = priorRewrites > 0 ? { ...base, priorRewrites } : base;
 
   let listed = await listPending(env, input);
   if (listed.kind !== "listed") return listed;

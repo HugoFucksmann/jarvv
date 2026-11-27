@@ -273,7 +273,7 @@ function registerEvents(router: express.Router, tasks: TaskManager, discoveryEng
 
     const keepAlive = setInterval(() => send(': ping\n\n'), getSseKeepAliveMs());
     let closed = false;
-    req.on('close', () => {
+    res.on('close', () => {
       if (closed) return;
       closed = true;
       sseClients--;

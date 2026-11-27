@@ -27,7 +27,7 @@ export { DecisionServiceUnavailableError, DecisionValidationError, LLMServiceUna
 /** Estimación conservadora (3 caracteres por token) para guardas de contexto. */
 export const estimateTokens = (text: string): number => Math.ceil(text.length / 3);
 
-export interface PostJsonOptions {
+interface PostJsonOptions {
     url: string;
     /** Cuerpo ya serializado. */
     body: string;

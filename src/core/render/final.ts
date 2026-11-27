@@ -53,7 +53,7 @@ export function renderFinal(view: FinalView, options: FinalRenderOptions): Rende
   const sections = [
     previousTaskBlock,
     `REQUEST: ${clipMarked(oneLine(view.request), caps.request)}`,
-    `TASK: ${clipMarked(oneLine(view.task.note), caps.finalNote)}`,
+    `TASK: ${view.task.state}${view.task.stopReason === null ? "" : ` (${view.task.stopReason})`}`,
     obsBlock("STEPS", view.steps.map((s) => finalStepLine(s, caps))),
     obsBlock("DATA", view.lastReads.map((c) => readEntry(c, caps))),
     obsBlock("EVIDENCE", view.evidence.map((c) => evidenceEntry(c, caps))),

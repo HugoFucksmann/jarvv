@@ -19,10 +19,10 @@
 import type { StepFailureCause } from "./outcomes.ts";
 
 /** Qué prerrequisito falta. */
-export type PrerequisiteSignal = "missing_destination" | "program_not_found" | "port_in_use" | "unsupported_format";
+type PrerequisiteSignal = "missing_destination" | "program_not_found" | "port_in_use" | "unsupported_format";
 
 /** Lo mínimo del último intento fallido. `kind` es el de la llamada registrada (`write` si cambia algo en disco). */
-export interface FailedCallText {
+interface FailedCallText {
   readonly kind: "read" | "write";
   readonly text: string;
 }
@@ -69,7 +69,7 @@ export function missingPrerequisite(call: FailedCallText): PrerequisiteSignal | 
 // ───────────────────────── Paradas duras (`close`) ─────────────────────────
 
 /** Por qué se cierra. */
-export type HardStopSignal =
+type HardStopSignal =
   | "refused" // el usuario, la política de seguridad o el anti-bucle del motor dijeron que no
   | "permission_denied"
   | "tests_or_build_failed"

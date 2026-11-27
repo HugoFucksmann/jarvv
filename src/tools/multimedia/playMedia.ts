@@ -12,7 +12,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { effectiveTimeoutMs } from "../../core/tools/filePaths.ts";
-import { cancelledResult, toolResult } from "../../core/tools/result.ts";
+import { cancelledResult, toolResult, toolFail as fail } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
 
@@ -39,18 +39,15 @@ export interface PlayMediaDriver {
   play(req: PlayMediaRequest): Promise<{ readonly title?: string; readonly launchedTarget?: string } | void>;
 }
 
-export interface PlayMediaDeps {
+interface PlayMediaDeps {
   readonly driver?: PlayMediaDriver;
   readonly platform?: NodeJS.Platform;
   readonly defaultTimeoutMs?: number;
 }
 
-const fail = (message: string, data: Record<string, unknown> = {}): MCPCallResult =>
-  toolResult({ text: message, raw: message, data: { state: "error", truncated: false, ...data }, isError: true });
-
 const PS_LAUNCH_TARGET = "Start-Process -FilePath $env:JARVIS_MEDIA_TARGET";
 
-export function createDefaultPlayMediaDriver(
+function createDefaultPlayMediaDriver(
   platform: NodeJS.Platform = process.platform,
   timeoutMs = DEFAULT_PLAY_MEDIA_TIMEOUT_MS,
 ): PlayMediaDriver {
