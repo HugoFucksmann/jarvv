@@ -68,6 +68,8 @@ interface Scenario {
   readonly completionFails?: boolean | FailKind;
   /** Guarda de cobertura de D5 (`completionCoverageGuard`) encendida. */
   readonly coverageGuard?: boolean;
+  /** `closeByListCoverage` (por defecto encendido en el motor; la prueba lo omite salvo que se pida). */
+  readonly closeByList?: boolean;
   /** El modelo de pendientes devuelve siempre el mismo ítem (no confirma que no falte nada): tras un fallo corta por reescritura idéntica. */
   readonly pendingAlways?: boolean;
   /** El proveedor de terminal responde sin herramientas (una plataforma donde no existe: RC-29). */
@@ -270,6 +272,7 @@ async function run(s: Scenario): Promise<Outcome> {
     environment: async () => ({ platform: "windows", home: s.home ?? "C:\\Users\\Ana" }),
     autoMode: () => s.autoMode ?? false,
     completionCoverageGuard: () => s.coverageGuard ?? false,
+    ...(s.closeByList === undefined ? {} : { closeByListCoverage: () => s.closeByList! }),
     ...(s.disk === undefined ? {} : { disk: s.disk }),
     previousTask: s.previous ?? null,
     ...(s.onClosing === undefined ? {} : { sink: { llm: () => undefined, tool: () => undefined, closing: (e) => s.onClosing!(e.cause) } }),
@@ -1519,6 +1522,48 @@ test("cobertura (sombra): se consulta una vez con el pedido y la primera lista, 
 test("cobertura (sombra): no se consulta si la lista no la armó el modelo (una acción con la solicitud literal)", async () => {
   const out = await run({ request: "Buscar A en C:\Users\Ana\Documentos", first: "single", tool: "list_folder", args: { path: "C:\Users\Ana\Documentos" }, completion: 0.9, coverageFor: () => 0.1 });
   assert.equal(out.coverageChecks.length, 0);
+});
+
+// ───────────────────────── Cierre sin Decisión 5 por cobertura de la lista ─────────────────────────
+
+const LISTED = {
+  request: `Buscar A y buscar B en ${READ_PATHS}`,
+  first: "multi",
+  tool: "list_folder",
+  args: {},
+  argsFor: (n: number) => ({ path: `C:\\Users\\Ana\\Documentos${n}` }),
+  pendingFor: (n: number) => (n === 0 ? ["Buscar A", "Buscar B"] : []),
+} as const;
+
+test("lista cubierta (>= 0,99) y cumplida, sin pasos fallidos: cierra completed sin consultar a Decisión 5, aunque ella diría que no", async () => {
+  const causes: string[] = [];
+  const out = await run({ ...LISTED, completion: 0.05, coverageFor: () => 0.995, onClosing: (c) => causes.push(c) });
+  assert.equal(out.ctx.task.state, "completed");
+  assert.equal(out.completionChecks, 0, "Decisión 5 no se consulta");
+  assert.deepEqual(causes, ["list_covered"]);
+});
+
+test("cobertura por debajo del corte: Decisión 5 decide como siempre", async () => {
+  const out = await run({ ...LISTED, completion: 0.9, coverageFor: () => 0.9 });
+  assert.equal(out.ctx.task.state, "completed");
+  assert.ok(out.completionChecks >= 1, "se consulta a Decisión 5");
+});
+
+test("con el interruptor apagado (closeByListCoverage = false) se consulta siempre a Decisión 5", async () => {
+  const out = await run({ ...LISTED, completion: 0.9, coverageFor: () => 0.999, closeByList: false });
+  assert.ok(out.completionChecks >= 1);
+});
+
+test("un paso fallido antes del cierre: la lista que se midió ya no es la que se cumplió, y Decisión 5 decide", async () => {
+  const out = await run({
+    ...LISTED,
+    completion: 0.9,
+    coverageFor: () => 0.999,
+    verifyFor: (n) => (n < 2 ? REJECT : { ok: 0.95, cumple: 0.95 }),
+    pendingFor: (n) => (n === 0 ? ["Buscar A", "Buscar B"] : n === 1 ? ["Buscar A de otra forma", "Buscar B"] : []),
+  });
+  assert.ok(out.ctx.find("steps", { state: "failed" }).length >= 1, "hubo un paso fallido");
+  assert.ok(out.completionChecks >= 1, "con un paso fallido no se cierra por cobertura: se consulta a Decisión 5");
 });
 
 test("cierre: no_alternatives por reescritura idéntica informa su causa a la traza", async () => {

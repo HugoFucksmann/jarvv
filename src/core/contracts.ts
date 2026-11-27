@@ -447,6 +447,8 @@ export interface EngineDeps {
   readonly reviewReads?: () => boolean;
   /** Experimental (config `completionCoverageGuard`): Decisión 5 no cierra si un archivo nombrado en el pedido no aparece en ninguna llamada. Omitida = apagada. */
   readonly completionCoverageGuard?: () => boolean;
+  /** Config `closeByListCoverage`: con la lista cubierta y cumplida, la tarea cierra sin consultar a Decisión 5. Omitida = encendida. */
+  readonly closeByListCoverage?: () => boolean;
   /** Config `recoveryShadow`: tras cada paso fallido del reactivo, calcula qué haría `recovery` y lo registra en la traza SIN actuar. Omitida = apagada. */
   readonly recoveryShadow?: () => boolean;
   /** Override de plazo (ms) de una herramienta desde la configuración (`toolTimeoutsMs`); `undefined` = rige el del catálogo. */

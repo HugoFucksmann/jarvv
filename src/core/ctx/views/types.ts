@@ -96,6 +96,15 @@ export interface CallView {
   readonly summary: string | null;
 }
 
+/**
+ * Una llamada con la instrucción del paso al que pertenece: lo que se pidió (el ítem de la lista, con las palabras que el modelo de pendientes le dio) y lo que se hizo para
+ * cumplirlo. `instruction` es `null` si el paso no la tiene.
+ */
+export interface StepCallView {
+  readonly instruction: string | null;
+  readonly call: CallView;
+}
+
 /** Un efecto o posible efecto es una llamada `write`; se muestra siempre con sus `args`. */
 export type EffectView = CallView;
 
@@ -278,8 +287,10 @@ export interface PendingView {
   readonly request: string;
   /** Lista de pendientes de la vuelta anterior; vacía en la primera. */
   readonly previous: readonly string[];
-  readonly done: readonly CallView[];
-  readonly attempts: readonly CallView[];
+  /** Llamadas hechas (aprobadas), cada una con la instrucción del paso que cumplió. */
+  readonly done: readonly StepCallView[];
+  /** Intentos no aprobados desde la última llamada aprobada (ventana por escalaciones), cada uno con la instrucción de su paso. */
+  readonly attempts: readonly StepCallView[];
   readonly userInput: readonly UserInputView[];
   readonly env: readonly FactView[];
 }

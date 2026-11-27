@@ -12,6 +12,7 @@ Si falta `jarvis-config.json`, `ConfigManager` aplica `DEFAULT_CONFIG` (`src/cor
 | `decisionModel` | `"d3:2b"` | `"d3:2b-text"` | Modelo de decisión (`/v1/systemone`) |
 | `autoMode` | `false` | `true` | Omitir la confirmación humana de lo amarillo (D3 lo revisa; lo verde nunca pide); lo rojo y lo obligatorio de Guard siempre se confirman |
 | `reviewFullView`, `reviewReads`, `completionCoverageGuard` | `false` | `false` | Experimentales, apagados: D3 con lecturas y entorno; lecturas por D3; D5 con guarda de cobertura (ver `PENDIENTES_EVAL.md` §1 y §3) |
+| `closeByListCoverage` | `true` | `true` | Con la lista de pendientes cubierta (cobertura >= 0,99), todos sus ítems cumplidos y ningún paso fallido, la tarea cierra sin consultar a Decisión 5 (`engine/completion.ts`); `false` la consulta siempre |
 | `recoveryShadow` | `true` | `true` | Modo sombra de la recuperación tras un paso fallido del reactivo: calcula qué haría (reglas de `recoveryRules.ts` y, si no deciden, una consulta de Decisión) y lo registra en la traza (etapa `recovery`). **No actúa ni cambia lo que hace Jarvis**; agrega una consulta a Decisión por fallo solo cuando las reglas no deciden. Se lee en cada fallo (ver `eval/GUIA_DECISION.md`, sección 5) |
 
 ## 2. Claves principales (`jarvis-config.json`)

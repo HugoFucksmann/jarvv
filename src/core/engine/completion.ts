@@ -26,6 +26,14 @@ export const COMPLETION_APPROVE = 0.75;
  */
 export const COMPLETION_INCOMPLETE_BELOW = 0.25;
 
+/**
+ * Cobertura de la primera lista de pendientes (`covers`) desde la que, con todos sus ítems cumplidos y sin ningún paso fallido, la tarea cierra `completed` sin consultar a Decisión 5.
+ * Cada ítem ya pasó la verificación de su paso (D4) y la lista cubre el pedido: lo que D5 aportaba (con la lista vacía, juzgar todo lo hecho junto) es lo que el modelo chico hace
+ * peor (daba 0,28 a 0,46 con el pedido cumplido). El corte sale de `eval/exp/list_coverage.ts` sobre 417 listas con verdad conocida: con 0,99 acepta 7 % de las listas a las que les
+ * falta una parte (D5 solo deja pasar algo parecido) y manda a D5 el 28 % de las completas; con 0,75 a 0,80 aceptaría 60 % de las incompletas, por eso no sirve ese valor.
+ */
+export const LIST_COVERAGE_CLOSE = 0.99;
+
 /** Extensiones que cuentan como «un archivo nombrado» en la guarda de cobertura (una lista cerrada evita tomar `github.com` o `v1.2` por archivos). */
 const FILE_EXT = "txt|md|json|csv|ps1|py|js|ts|pdf|docx?|xlsx?|pptx?|png|jpe?g|zip|html?|css|log|xml|ya?ml|ini|bat|cmd|exe|mp3|mp4";
 const FILE_NAME = new RegExp(`[\\w\\-]+\\.(?:${FILE_EXT})(?![\\w])`, "gi");
@@ -42,7 +50,8 @@ export function uncoveredArtifacts(request: string, calls: readonly { readonly a
 }
 
 type CompletionOutcome =
-  | { readonly kind: "complete" }
+  /** `by`: `list_coverage` si cerró sin consultar a Decisión 5 (lista cubierta y cumplida); sin él, cerró Decisión 5. */
+  | { readonly kind: "complete"; readonly by?: "list_coverage" }
   /** `gaps`: los pasos que cierran lo que el libro de requisitos halló sin cubrir (`engine/requirements.ts`); sin ellos, rige la confirmación de siempre. */
   | { readonly kind: "incomplete"; readonly gaps?: readonly string[] }
   | { readonly kind: "close"; readonly stopReason: "unrecoverable" }
@@ -70,6 +79,17 @@ export async function confirmCompletion(env: EngineEnv, ledger: RequirementsLedg
       console.warn(`[Engine] cierre por Decisión 5 omitido: el pedido nombra ${missing.join(", ")} y ninguna llamada lo menciona.`);
       return { kind: "incomplete" };
     }
+  }
+
+  // Lista cubierta y cumplida: el libro de requisitos sigue mandando (un requisito de información sin datos reabre la lista); sin huecos, cierra sin Decisión 5.
+  const listCoverage = env.state.listCoverage;
+  if (env.deps.closeByListCoverage?.() !== false && listCoverage !== null && listCoverage >= LIST_COVERAGE_CLOSE && ctx.escalations() === 0) {
+    if (ledger !== null && ledger.canReopen) {
+      const gaps = await findRequirementGaps(env, ledger.requirements);
+      if (runtime.cancelled || ctx.isClosed()) return { kind: "cancelled" };
+      if (gaps.length > 0) return { kind: "incomplete", gaps };
+    }
+    return { kind: "complete", by: "list_coverage" };
   }
 
   const query = await queryModel(() => env.decision.checkCompletion(completionInput(ctx), runtime.signal), pauseOf(env, "decision"));

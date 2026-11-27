@@ -59,6 +59,23 @@ export function obsBlock(label: string, lines: readonly string[]): string | null
   return lines.length === 0 ? null : `${label}:\n<obs>\n${lines.join("\n")}\n</obs>`;
 }
 
+/** Campos de la cabecera de un resultado de comando que no dicen si el pedido se cumplió: la duración, el PID y la carpeta. */
+const HEADER_NOISE = / · (?:duration|pid|cwd): .*?(?= · |$)/g;
+
+/**
+ * El resultado de una llamada para un modelo que juzga lo hecho (lista de pendientes): lo que dice la herramienta sin el encabezado de ejecución. Un comando abre su resultado con
+ * `status: finished · exit code: 0 · duration: 0.7s · pid: 25084 · cwd: C:\…` y la frase «The command finished successfully.»: unos 120 caracteres antes del primer dato, y de ellos
+ * solo el código de salida distinto de cero importa. Conserva los saltos de línea (una tabla aplastada en una línea no se lee) y el saneado.
+ */
+export function resultText(summary: string): string {
+  const lines = multiLine(summary).split("\n");
+  if (/^status: \w+/.test(lines[0] ?? "")) {
+    lines[0] = lines[0].replace(HEADER_NOISE, "");
+    if (/^status: finished(?: · exit code: 0)?$/.test(lines[0])) lines.shift();
+  }
+  return lines.filter((l) => l.trim() !== "The command finished successfully.").join("\n").trim();
+}
+
 /** Identificación de la llamada y su resultado fijo: sin `args`, resumen ni ref. */
 export function callHead(call: CallView): string {
   const parts = [`${call.id} ${call.stepId} ${oneLine(call.route)}/${oneLine(call.tool)} ${call.kind} ${call.status}`];

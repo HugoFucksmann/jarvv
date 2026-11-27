@@ -14,8 +14,10 @@ export interface TaskExecutionState {
   thread: PreviousTask | null;
   /** Lo último que dijo Decisión 5 (`confirmCompletion`): la probabilidad de `request_complete`, o `null` si no respondió. */
   lastCompletion: number | null;
+  /** Cuánto cubre la primera lista de pendientes lo que pide la solicitud (`covers` de Decisión, la midió `shadowCoverage`); `null` si no se midió (lista de una sola acción o Decisión no respondió). Lo usa `confirmCompletion`. */
+  listCoverage: number | null;
   /** El LLM generativo no estuvo disponible en esta tarea: la respuesta final no lo consulta y va directo a la de respaldo. */
   llmDown: boolean;
 }
 
-export const createExecutionState = (): TaskExecutionState => ({ thread: null, lastCompletion: null, llmDown: false });
+export const createExecutionState = (): TaskExecutionState => ({ thread: null, lastCompletion: null, listCoverage: null, llmDown: false });

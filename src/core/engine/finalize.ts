@@ -22,14 +22,15 @@ import { stripNoChangesFiller } from "./finalClean.ts";
 import type { EngineEnv } from "./env.ts";
 import { pauseOf, queryModel } from "./failures.ts";
 
-/** Por qué se cerró con `no_alternatives`: el motivo de detención agrupa causas que el flujo distingue y la traza debe poder leer. */
+/** Por qué cerró la tarea cuando el motivo de detención no alcanza (`no_alternatives` agrupa varias causas; un `completed` puede cerrar sin Decisión 5): la traza debe poder leerlo. */
 export type ClosingCause =
   | "identical_rewrite" // `pending` volvió a proponer el ítem que falló, también tras el reintento con más temperatura
   | "skips_failed_item" // `pending` omitió el ítem fallido y siguió con uno de atrás
   | "no_replacement" // `pending` no propuso ningún ítem nuevo tras el fallo
   | "empty_list_rejected" // `pending` dijo que no queda nada, pero había un ítem sin cumplir
   | "nothing_left" // lista vacía y sin llamada aprobada con la que cerrar
-  | "failure_streak"; // más de `maxEscalations` pasos fallidos seguidos
+  | "failure_streak" // más de `maxEscalations` pasos fallidos seguidos
+  | "list_covered"; // cierre `completed` sin Decisión 5: la lista cubría el pedido, todos sus ítems se cumplieron y ningún paso falló
 
 /** Cómo cierra la tarea: `null` = `completed`; si no, el motivo de detención (y, si el flujo la distingue, la causa). */
 export interface Closing {

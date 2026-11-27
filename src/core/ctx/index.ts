@@ -87,6 +87,7 @@ export { canFinish, hasApprovedCall, hasApprovedOk, hasEffects, isEffect, planCl
 export {
   ANSWER_FACT_PREFIX,
   attemptCalls,
+  attemptsSinceProgress,
   doneCalls,
   effectsOf,
   envOf,
@@ -126,6 +127,7 @@ export type {
   FinalView,
   FinalViewOptions,
   PendingView,
+  StepCallView,
   PlanTriggerView,
   PlanView,
   PlanViewOptions,

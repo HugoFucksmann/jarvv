@@ -75,6 +75,21 @@ export function attemptCalls(calls: readonly Call[], stepId?: string): Call[] {
   return calls.filter((c) => !isApproved(c) && (stepId === undefined || c.stepId === stepId));
 }
 
+/**
+ * Intentos no aprobados desde la última llamada aprobada (el progreso): lo que falló DESPUÉS de lo último que salió bien. Los fallos de antes de ese progreso ya los
+ * superó la tarea y no informan lo que sigue. Sin ninguna aprobada, todos.
+ */
+export function attemptsSinceProgress(calls: readonly Call[]): Call[] {
+  let from = 0;
+  for (let i = calls.length - 1; i >= 0; i--) {
+    if (isApproved(calls[i])) {
+      from = i + 1;
+      break;
+    }
+  }
+  return attemptCalls(calls.slice(from));
+}
+
 /** Fallos de llamada recientes; con `stepId`, los del paso. */
 export function recentFailures(calls: readonly Call[], size: number, stepId?: string): Call[] {
   return lastN(

@@ -29,6 +29,7 @@ export interface EngineServices {
   readonly autoMode: () => boolean;
   readonly reviewReads?: () => boolean;
   readonly completionCoverageGuard?: () => boolean;
+  readonly closeByListCoverage?: () => boolean;
   /** Modo sombra de `recovery` (config `recoveryShadow`, leída en cada fallo): registra qué haría, no actúa. */
   readonly recoveryShadow?: () => boolean;
   /** Override de plazo (ms) por herramienta desde la configuración, leído en cada llamada. */
@@ -87,6 +88,7 @@ export function createEngineServices(getConfig: ConfigSource, options: EngineSer
     autoMode: () => getConfig().autoMode,
     reviewReads: () => getConfig().reviewReads,
     completionCoverageGuard: () => getConfig().completionCoverageGuard,
+    closeByListCoverage: () => getConfig().closeByListCoverage,
     recoveryShadow: () => getConfig().recoveryShadow,
     toolTimeoutMs: (server, tool) => resolveToolTimeoutMs(getConfig(), server, tool),
     allowedDirectories: () => getConfig().allowedDirectories,

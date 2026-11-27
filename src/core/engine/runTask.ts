@@ -160,7 +160,7 @@ async function runReactive(env: EngineEnv): Promise<Closing> {
           // Hecho todo lo previsto: Decisión 5 dice si la solicitud está cumplida (cierra sin llamar al LLM)
           // y, si no lo asegura, se confirma con el LLM que no falta nada.
           const completion = await confirmCompletion(env, requirements === null ? null : { requirements, canReopen: list.canReopen });
-          if (completion.kind === "complete") return COMPLETED;
+          if (completion.kind === "complete") return completion.by === "list_coverage" ? { stopReason: null, cause: "list_covered" } : COMPLETED;
           if (completion.kind === "cancelled") return CANCELLED;
           if (completion.kind === "close") return stop(completion.stopReason);
           // El libro de requisitos halló qué falta: esos pasos entran a la lista sin pasar por el modelo de pendientes.

@@ -302,7 +302,7 @@ export function buildSummary(input: SummaryInput): string {
   const md: string[] = [];
   md.push(`# Traza: ${oneLine(task.request, 120)}`, "");
   md.push(
-    `- Tarea \`${task.id}\` · modo **${task.mode}** · estado **${task.state}**${task.stopReason ? ` (${task.stopReason}${input.closeCause ? `: ${input.closeCause}` : ""})` : ""} · ${seconds(total)}`,
+    `- Tarea \`${task.id}\` · modo **${task.mode}** · estado **${task.state}**${task.stopReason ? ` (${task.stopReason}${input.closeCause ? `: ${input.closeCause}` : ""})` : input.closeCause ? ` (cierre: ${input.closeCause})` : ""} · ${seconds(total)}`,
     `- ${s.steps.length} pasos · ${s.calls.length} llamadas · ${queries.length} consultas a modelos (${meta.models.generative} y ${meta.models.decision})`,
     `- Código ${meta.gitSha ?? "?"} · formato v${meta.formatVersion} · \`trace.json\` (liviana) y \`full.json.gz\` (completa, con entradas crudas)`,
     "",

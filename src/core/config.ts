@@ -98,6 +98,8 @@ export interface JarvisConfig {
   reviewFullView: boolean;
   reviewReads: boolean;
   completionCoverageGuard: boolean;
+  /** Con la lista de pendientes cubierta (cobertura >= `LIST_COVERAGE_CLOSE`), todos sus ítems cumplidos y ningún paso fallido, la tarea cierra sin consultar a Decisión 5 (`engine/completion.ts`). Encendido por defecto; `false` vuelve a consultarla siempre. */
+  closeByListCoverage: boolean;
   /**
    * Modo sombra de la recuperación tras un paso fallido (`engine/recoveryShadow.ts`): tras cada fallo del reactivo calcula qué haría y lo registra en la traza SIN actuar. No cambia
    * lo que hace Jarvis; agrega una consulta a Decisión por fallo cuando las reglas no deciden. Se lee en cada fallo. Encendido por defecto: es el instrumento para medir `recovery` con tareas reales.
@@ -207,6 +209,7 @@ const DEFAULT_CONFIG: JarvisConfig = {
   reviewFullView: false,
   reviewReads: false,
   completionCoverageGuard: false,
+  closeByListCoverage: true,
   recoveryShadow: true,
   webSearchUseJudge: true,
   voiceEnabled: false,
@@ -338,6 +341,7 @@ function normalize(raw: unknown, base: JarvisConfig = DEFAULT_CONFIG): JarvisCon
     reviewFullView: typeof r.reviewFullView === "boolean" ? r.reviewFullView : d.reviewFullView,
     reviewReads: typeof r.reviewReads === "boolean" ? r.reviewReads : d.reviewReads,
     completionCoverageGuard: typeof r.completionCoverageGuard === "boolean" ? r.completionCoverageGuard : d.completionCoverageGuard,
+    closeByListCoverage: typeof r.closeByListCoverage === "boolean" ? r.closeByListCoverage : d.closeByListCoverage,
     recoveryShadow: typeof r.recoveryShadow === "boolean" ? r.recoveryShadow : d.recoveryShadow,
     webSearchUseJudge: typeof r.webSearchUseJudge === "boolean" ? r.webSearchUseJudge : d.webSearchUseJudge,
     voiceEnabled: typeof r.voiceEnabled === "boolean" ? r.voiceEnabled : d.voiceEnabled,

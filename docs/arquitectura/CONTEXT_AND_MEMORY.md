@@ -170,7 +170,7 @@ Cada consumidor recibe una vista distinta del mismo contexto, estructurada, de s
 | `forReview` | Decisión 3 (revisión de argumentos) |
 | `forVerify` | Decisión 4 (verificación): criterio del paso, la llamada evaluada, lo hecho (`done`, solo reactivo), la entrada del usuario y las llamadas aprobadas previas completas (`previous`, en ambos modos; el adaptador toma las últimas `caps.lastReads` como `recent`) |
 | `forAsk` | Pregunta al usuario |
-| `forPending` | Lista de pendientes del reactivo: solicitud, lista anterior, lo hecho (con argumentos y resumen), últimos intentos fallidos y entrada del usuario |
+| `forPending` | Lista de pendientes del reactivo: solicitud, lista anterior, lo hecho (la instrucción del paso, la herramienta con sus argumentos y el resultado, sin ids ni encabezado de ejecución), los intentos fallidos desde lo último que salió bien (con su razón) y entrada del usuario |
 | `forFinal` / `forFallback` | Respuesta final con modelo / respuesta de respaldo sin modelo |
 
 - **Qué muestra cada una** depende del modo, pero en ambos las decisiones, los argumentos y la verificación ven el paso actual (en reactivo, el primer pendiente; la solicitud completa solo la ven la lista de pendientes, la pregunta al usuario y la respuesta final). En reactivo suman lo hecho y el último resultado; en deliberativo, los pasos completados con su resultado. Los intentos que ven las decisiones son los del paso actual.
