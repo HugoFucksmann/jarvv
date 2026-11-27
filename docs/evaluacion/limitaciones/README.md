@@ -8,6 +8,7 @@ Una ficha por modelo, porque intervienen dos y no responden lo mismo:
 |---|---|---|
 | [qwen-3.5-4b.md](./qwen-3.5-4b.md) | Qwen 3.5 4B (`qwen3.5:4b`), generativo | La lista de pendientes (`pending`), los argumentos, la pregunta al usuario y la respuesta final |
 | [d3-2b.md](./d3-2b.md) | d3:2b, decisión | D1 (ruta), D2 (herramienta), D3 (revisión de argumentos), D4 (verificación) y la Decisión 5 (cierre) |
+| [d3-2b-hallazgos-2026-11-27.md](./d3-2b-hallazgos-2026-11-27.md) | d3:2b, decisión (2026-11-27) | Lo medido después con trazas reales y casos sintéticos: probabilidades saturadas, D5 y D4 con otros formatos, cortes y variantes, y la comparación con `d3:4b-text` |
 
 La selección de herramientas (D1 y D2) depende de **d3:2b**, no de Qwen.
 

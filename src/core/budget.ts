@@ -127,6 +127,8 @@ export const BUDGET = {
     nextInstruction: 600,
     lastResultSummary: 2500,
     lastReads: 3,
+    /** Lecturas que ve el paso que escribe un texto compuesto con lo leído (`composesFromReads`): las más recientes, hasta este tope. Con 3 la más vieja de una tarea de 4 búsquedas desaparecía y el archivo salía con «no disponible» (traza del viaje a Mendoza, 2026-11-27; con todas, 8 de 8 corridas incluyen el dato). */
+    readsForContent: 8,
     userInput: 6000,
     env: 1000,
     /** Reserva común de efectos y posibles efectos: nunca se recortan; si no entran, la vista falla en voz alta. */

@@ -114,6 +114,8 @@ export interface JarvisConfig {
   voiceEnabled: boolean;
   /** Además de texto, Telegram responde con una nota de voz (necesita `ffmpeg` en el PATH). */
   telegramVoice: boolean;
+  /** Bot de Telegram encendido. Se aplica en caliente (el server lo arranca o lo detiene); sin `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` en el entorno no hay bot, esté como esté. */
+  telegramEnabled: boolean;
   /** URL base del servidor TTS (solo http o https). */
   voiceUrl: string;
   /** Voz del servidor TTS (`GET /v1/audio/voices` las lista); "default" usa la predeterminada. */
@@ -214,6 +216,7 @@ const DEFAULT_CONFIG: JarvisConfig = {
   webSearchUseJudge: true,
   voiceEnabled: false,
   telegramVoice: false,
+  telegramEnabled: true,
   voiceUrl: "http://127.0.0.1:8880",
   voiceName: "default",
 };
@@ -346,6 +349,7 @@ function normalize(raw: unknown, base: JarvisConfig = DEFAULT_CONFIG): JarvisCon
     webSearchUseJudge: typeof r.webSearchUseJudge === "boolean" ? r.webSearchUseJudge : d.webSearchUseJudge,
     voiceEnabled: typeof r.voiceEnabled === "boolean" ? r.voiceEnabled : d.voiceEnabled,
     telegramVoice: typeof r.telegramVoice === "boolean" ? r.telegramVoice : d.telegramVoice,
+    telegramEnabled: typeof r.telegramEnabled === "boolean" ? r.telegramEnabled : d.telegramEnabled,
     voiceUrl: httpUrl(r.voiceUrl, d.voiceUrl),
     voiceName: nonEmptyText(r.voiceName, d.voiceName),
   };

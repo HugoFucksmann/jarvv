@@ -439,6 +439,7 @@
     "nextInstruction": 600,
     "lastResultSummary": 2500,
     "lastReads": 3,
+    "readsForContent": 8,
     "userInput": 6000,
     "env": 1000,
     "effectsReserve": 12000,

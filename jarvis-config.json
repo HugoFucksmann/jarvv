@@ -52,10 +52,12 @@
   "reviewFullView": false,
   "reviewReads": false,
   "completionCoverageGuard": false,
+  "closeByListCoverage": true,
   "recoveryShadow": true,
   "webSearchUseJudge": true,
-  "voiceEnabled": false,
+  "voiceEnabled": true,
   "telegramVoice": false,
+  "telegramEnabled": true,
   "voiceUrl": "http://127.0.0.1:8880",
   "voiceName": "default"
 }

@@ -54,6 +54,8 @@ interface ToolDefinition {
   readonly repeatByArgs?: (args: Readonly<Record<string, unknown>>) => RepeatPolicy;
   /** Sondas de verificación de esta herramienta (`tools/probes.ts`): preguntas a Decisión que solo corren cuando la llamada es de esta herramienta. */
   readonly probes?: readonly Probe[];
+  /** El texto que escribe la herramienta sale de lo leído antes (compila lo que juntaron las lecturas): su vista de argumentos muestra todas las lecturas de la tarea, no solo las últimas. */
+  readonly composesFromReads?: boolean;
   /** Solo la usa una tool compuesta por dentro: no entra en el catálogo de Decision ni del planificador. */
   readonly internal?: boolean;
   readonly policy: Readonly<ToolPolicy>;
@@ -114,6 +116,8 @@ interface ToolOptions {
   timeoutMs?: number;
   repeatByArgs?: (args: Readonly<Record<string, unknown>>) => RepeatPolicy;
   probes?: readonly Probe[];
+  /** Ver `ToolDefinition.composesFromReads`. */
+  composesFromReads?: boolean;
 }
 
 function def(
@@ -156,6 +160,7 @@ function def(
     timeoutMs: opts.timeoutMs,
     repeatByArgs: opts.repeatByArgs,
     probes: opts.probes ? Object.freeze([...opts.probes]) : undefined,
+    composesFromReads: opts.composesFromReads || undefined,
     internal: internal || undefined,
     policy: Object.freeze({
       capability,
@@ -233,6 +238,7 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
       createFolders: "Create missing parent folders (default false).",
     },
     argCaps: { content: 4000 },
+    composesFromReads: true,
   }),
   def("files_write", "edit_file", "FILE_WRITE", "Replace exact text inside an existing text file.", {
     params: ["path", "oldText", "newText", "replaceAll", "expectedReplacements"],
@@ -244,6 +250,7 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
       expectedReplacements: "Optional expected number of replacements (>= 1).",
     },
     argCaps: { oldText: 2000, newText: 2000 },
+    composesFromReads: true,
   }),
   def("files_write", "convert_file", "FILE_WRITE", "Convert or resize an image, audio or video file.", {
     params: ["source", "destination", "format", "width", "height", "quality", "overwrite"],
@@ -471,6 +478,11 @@ export function isKnownTool(server: string, tool: string): boolean {
 
 export function getToolPolicy(server: string, tool: string): Readonly<ToolPolicy> {
   return lookup(server, tool)?.policy ?? UNKNOWN_TOOL_POLICY;
+}
+
+/** ¿El texto que escribe la herramienta sale de lo leído antes? Entonces su vista de argumentos muestra todas las lecturas de la tarea (`readsForContent`). */
+export function composesFromReads(server: string, tool: string): boolean {
+  return lookup(server, tool)?.composesFromReads === true;
 }
 
 /** Política de repetición de una llamada: la de sus argumentos si la herramienta la declara así (`repeatByArgs`); si no, la de su política. */

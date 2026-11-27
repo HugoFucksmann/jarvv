@@ -13,7 +13,7 @@ import type { IMCPServer } from "../mcp/types.ts";
 import { isReadOnlyCall } from "../policy/readOnly.ts";
 import { ContextOverflowError } from "../render/index.ts";
 import { expandPathAliases } from "../tools/filePaths.ts";
-import { getToolPolicy, repeatPolicyOf, serverOf, sortByCatalog } from "../tools/manifest.ts";
+import { composesFromReads, getToolPolicy, repeatPolicyOf, serverOf, sortByCatalog } from "../tools/manifest.ts";
 import type { MCPTool } from "../types.ts";
 import type { ExecutableRoute } from "../types/routes.ts";
 import { errorMessage } from "../utils.ts";
@@ -22,7 +22,7 @@ import { clipArgs, computeSig } from "./args.ts";
 import { discoverTools } from "./callDiscovery.ts";
 import { CANCELLED, fromFailure, register, registered, summaryText } from "./callRecord.ts";
 import type { Policy, PreparedCall } from "./callRecord.ts";
-import { chooseReads } from "./readSelection.ts";
+import { allReadIds, chooseReads } from "./readSelection.ts";
 import type { EngineEnv } from "./env.ts";
 import { pauseOf, queryModel } from "./failures.ts";
 import type { CallOutcome } from "./outcomes.ts";
@@ -106,8 +106,8 @@ export async function prepareArgs(env: EngineEnv, stepId: string, route: Executa
   await recordUserMemory(env, `${ctx.task.request}\n${stepText}`, stepId);
   if (runtime.cancelled || ctx.isClosed()) return STOP_CANCELLED;
 
-  // Las lecturas que ve el generador: las que el paso necesita, no solo las últimas (`engine/readSelection.ts`).
-  const readIds = await chooseReads(env, stepText);
+  // Las lecturas que ve el generador: las que el paso necesita, no solo las últimas (`engine/readSelection.ts`); si el paso escribe un texto compuesto con lo leído, todas.
+  const readIds = composesFromReads(mcp, tool.name) ? allReadIds(env) : await chooseReads(env, stepText);
   if (runtime.cancelled || ctx.isClosed()) return STOP_CANCELLED;
   const rendered = renderArgsView(ctx, tool.name, readIds);
   if (rendered.overflow) {

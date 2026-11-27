@@ -30,6 +30,17 @@ function approvedReads(calls: readonly Call[]): Call[] {
 }
 
 /**
+ * Las lecturas para un paso que escribe un texto compuesto con lo leído (`composesFromReads`): todas las de la tarea (las más recientes, hasta `readsForContent`) y sin consultar
+ * a Decisión. La elección por relevancia no sirve acá: el paso dice «toda la información recopilada» sin nombrar temas, y todas las lecturas puntúan bajo (0,01 a 0,14 en la traza
+ * del viaje). `undefined` si caben en la ventana de siempre.
+ */
+export function allReadIds(env: EngineEnv): readonly string[] | undefined {
+  const all = approvedReads(env.ctx.find("calls", {}));
+  if (all.length <= BUDGET.caps.lastReads) return undefined;
+  return all.slice(-BUDGET.caps.readsForContent).map((c) => c.id);
+}
+
+/**
  * Los ids de las lecturas que debe ver el paso, en orden cronológico, o `undefined` si rige la ventana de siempre (pocas lecturas, sin consulta disponible o sin
  * veredicto). Nunca lanza ni pausa la tarea.
  */

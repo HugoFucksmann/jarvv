@@ -20,6 +20,10 @@ export default defineConfig(() => {
     },
     build: {
       rollupOptions: {
+        input: {
+          main: path.resolve(rootDir, 'index.html'),
+          launcher: path.resolve(rootDir, 'launcher.html'),
+        },
         output: {
           manualChunks(id: string) {
             if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/')) {

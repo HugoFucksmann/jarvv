@@ -1,0 +1,31 @@
+/* Ventana flotante: el fondo del documento es transparente y el panel dibuja su propia superficie. */
+html,
+body {
+  background: transparent !important;
+  margin: 0;
+  overflow: hidden;
+}
+
+.launcher-panel {
+  /* Sin sombra ni blur: en una ventana transparente la sombra se corta en el borde y se ve como un recuadro. */
+  background: color-mix(in srgb, var(--color-slate-950) 96%, transparent);
+}
+
+.launcher-steps {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 160ms ease;
+}
+.launcher-steps[data-open="false"] {
+  grid-template-rows: 0fr;
+}
+.launcher-steps > div {
+  overflow: hidden;
+  min-height: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .launcher-steps {
+    transition: none;
+  }
+}

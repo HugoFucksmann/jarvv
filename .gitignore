@@ -32,3 +32,7 @@ data/memory.json
 
 # ── Entorno de Python del servidor de voz ──────────────────────────────────────
 /.venv-tts/
+
+# ── Tauri ──
+src-tauri/target/
+src-tauri/gen/

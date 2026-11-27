@@ -371,6 +371,9 @@ export interface JarvisConfig {
   webSearchUseJudge?: boolean;
   voiceEnabled?: boolean;
   telegramVoice?: boolean;
+  telegramEnabled?: boolean;
+  /** Solo lectura (`GET /config`): hay token y chat de Telegram en el entorno, o sea que el bot puede arrancar. */
+  telegramAvailable?: boolean;
   voiceUrl?: string;
   voiceName?: string;
 }

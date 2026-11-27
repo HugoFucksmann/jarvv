@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "La ventana flotante carga la UI desde el server local de JARVIS (loopback).",
+  "windows": ["main"],
+  "remote": {
+    "urls": ["http://127.0.0.1:3000/*", "http://localhost:3000/*"]
+  },
+  "permissions": ["core:window:allow-set-size", "core:window:allow-start-dragging", "core:window:allow-hide"]
+}

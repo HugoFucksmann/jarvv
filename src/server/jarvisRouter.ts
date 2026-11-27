@@ -16,6 +16,7 @@ import type { ControlResult, TaskManager } from '../core/tasks.ts';
 import type { DiscoveryEngine } from '../core/mcp/discovery.ts';
 import { TASK_MODES } from '../core/ctx/index.ts';
 import { streamSpeech } from '../voice/tts.ts';
+import { telegramConfigFromEnv } from '../telegram/config.ts';
 import { TIMEOUT_DEFAULTS } from '../core/timeouts.ts';
 import type { VoiceConfig } from '../voice/tts.ts';
 import type { TaskMode } from '../core/ctx/index.ts';
@@ -347,7 +348,7 @@ function registerDiscoveryAndConfig(router: express.Router, discoveryEngine: Dis
 
   // Configuración de los endpoints externos.
   router.get('/config', (_req, res) => {
-    res.json(sanitizeConfigForHttp(ConfigManager.getConfig()));
+    res.json({ ...sanitizeConfigForHttp(ConfigManager.getConfig()), telegramAvailable: telegramConfigFromEnv(process.env, 0).config !== null });
   });
   router.post('/config', (req, res) => {
     if (typeof req.body !== 'object' || req.body === null || Array.isArray(req.body)) {

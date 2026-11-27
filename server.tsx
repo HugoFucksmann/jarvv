@@ -39,6 +39,7 @@ import { isLoopbackHost, localOnly, proxyHostAllowed } from './src/server/localO
 import { startTelegram } from './src/telegram/bot.ts';
 import { telegramConfigFromEnv } from './src/telegram/config.ts';
 import type { VoiceConfig } from './src/voice/tts.ts';
+import { createTtsSupervisor } from './src/voice/ttsProcess.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -169,7 +170,9 @@ async function mountFrontend(app: express.Express): Promise<void> {
   // Fallback: index.html de Vite para cualquier otra ruta
   app.use('*', async (req, res, next) => {
     try {
-      const template = fs.readFileSync(path.resolve(__dirname, 'index.html'), 'utf-8');
+      // `/launcher` es la ventana flotante (entrada propia de Vite); cualquier otra ruta es el dashboard.
+      const page = /^\/launcher(\.html)?\/?(\?|$)/.test(req.originalUrl) ? 'launcher.html' : 'index.html';
+      const template = fs.readFileSync(path.resolve(__dirname, page), 'utf-8');
       const html = await vite.transformIndexHtml(req.originalUrl, template);
       res.status(200).set({ 'Content-Type': 'text/html' }).end(html);
     } catch (e: unknown) {
@@ -209,8 +212,15 @@ async function main() {
     return { voice: cfg.voiceName, baseUrl: cfg.voiceUrl };
   };
 
+  // El servidor de voz (Python) sigue a los interruptores de voz: se levanta al encenderlos y se cierra al apagarlos.
+  const tts = createTtsSupervisor(__dirname, getConfig);
+  void tts.sync();
+  ConfigManager.onChange(({ prev, next }) => {
+    if (prev.voiceEnabled !== next.voiceEnabled || prev.telegramVoice !== next.telegramVoice) void tts.sync();
+  });
+
   let stopTelegram: (() => void) | undefined;
-  installGracefulShutdown({ servers, tasks, getConfig, stoppers: () => [stopRetention, stopTelegram] });
+  installGracefulShutdown({ servers, tasks, getConfig, stoppers: () => [stopRetention, stopTelegram, tts.stop] });
 
   app.use('/api/jarvis', createJarvisRouter(tasks, discoveryEngine, () => voiceFor('ui'), () => getConfig().sseKeepAliveMs));
   app.use(['/api/mcp', '/mcp'], createMcpRouter(discoveryEngine));
@@ -233,13 +243,31 @@ async function main() {
   });
 
   // Telegram (opcional): segunda vía de entrada de tareas desde un único chat privado. Habla con esta misma API por loopback.
+  // Se enciende y apaga en caliente con `telegramEnabled`; el aviso de tareas interrumpidas solo se manda en el arranque del proceso, no al reencender.
   const telegram = telegramConfigFromEnv(process.env, PORT);
+  let announceInterrupted = true;
+  const syncTelegram = (): void => {
+    const wanted = getConfig().telegramEnabled;
+    if (!telegram.config) return;
+    if (wanted && !stopTelegram) {
+      stopTelegram = startTelegram({
+        cfg: telegram.config,
+        getVoice: () => voiceFor('telegram'),
+        interruptedOnStartup: announceInterrupted ? tasks.interruptedOnStartup() : [],
+      });
+      announceInterrupted = false;
+      console.log('[Telegram] Activado.');
+    } else if (!wanted && stopTelegram) {
+      stopTelegram();
+      stopTelegram = undefined;
+      console.log('[Telegram] Desactivado desde la configuración.');
+    }
+  };
   if (telegram.config) {
     for (const warning of telegram.warnings) console.warn(`[Telegram] ${warning}`);
-    stopTelegram = startTelegram({
-      cfg: telegram.config,
-      getVoice: () => voiceFor('telegram'),
-      interruptedOnStartup: tasks.interruptedOnStartup(),
+    syncTelegram();
+    ConfigManager.onChange(({ prev, next }) => {
+      if (prev.telegramEnabled !== next.telegramEnabled) syncTelegram();
     });
   } else {
     console.log(`[Telegram] Desactivado: ${telegram.reason}.`);
