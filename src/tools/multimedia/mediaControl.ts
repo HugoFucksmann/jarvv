@@ -25,7 +25,7 @@ const execFileAsync = promisify(execFile);
 export const DEFAULT_MEDIA_CONTROL_TIMEOUT_MS = 8_000;
 export const DEFAULT_SEEK_SECONDS = 10;
 export const MAX_SEEK_SECONDS = 600;
-const DEFAULT_VOLUME_STEP = 10;
+export const DEFAULT_VOLUME_STEP = 10;
 
 export const MEDIA_ACTIONS = [
   "play",
@@ -38,6 +38,7 @@ export const MEDIA_ACTIONS = [
   "volume_up",
   "volume_down",
   "set_volume",
+  "get_volume",
   "mute",
   "unmute",
   "toggle_mute",
@@ -187,6 +188,7 @@ const VOLUME_ACTIONS: ReadonlySet<MediaAction> = new Set([
   "volume_up",
   "volume_down",
   "set_volume",
+  "get_volume",
   "mute",
   "unmute",
   "toggle_mute",
@@ -203,6 +205,7 @@ function createDefaultMediaControlDriver(
       }
 
       if (VOLUME_ACTIONS.has(action)) {
+        const step = action === "volume_up" || action === "volume_down" ? (level ?? DEFAULT_VOLUME_STEP) : DEFAULT_VOLUME_STEP;
         const { stdout } = await execFileAsync(
           "powershell.exe",
           ["-NoProfile", "-NonInteractive", "-Command", PS_VOLUME_SCRIPT],
@@ -214,8 +217,8 @@ function createDefaultMediaControlDriver(
             env: {
               ...process.env,
               JARVIS_MEDIA_ACTION: action,
-              JARVIS_MEDIA_LEVEL: String(level ?? 50),
-              JARVIS_MEDIA_STEP: String(DEFAULT_VOLUME_STEP / 100),
+              JARVIS_MEDIA_LEVEL: String(action === "set_volume" ? (level ?? 50) : 50),
+              JARVIS_MEDIA_STEP: String(step / 100),
             },
           },
         );
@@ -226,7 +229,7 @@ function createDefaultMediaControlDriver(
             return {
               ...(typeof parsed.level === "number" && Number.isFinite(parsed.level)
                 ? { volumeLevel: parsed.level }
-                : level !== undefined
+                : action === "set_volume" && level !== undefined
                   ? { volumeLevel: level }
                   : {}),
               ...(typeof parsed.muted === "boolean"
@@ -240,7 +243,7 @@ function createDefaultMediaControlDriver(
           }
         }
         return {
-          ...(level !== undefined ? { volumeLevel: level } : {}),
+          ...(action === "set_volume" && level !== undefined ? { volumeLevel: level } : {}),
           ...(action === "mute" ? { muted: true } : action === "unmute" ? { muted: false } : {}),
         };
       }
@@ -315,6 +318,13 @@ export async function runMediaControl(
       return fail("'level' (integer 0..100) is required when action is 'set_volume'.");
     }
     level = rawArgs.level;
+  } else if (action === "volume_up" || action === "volume_down") {
+    if (rawArgs.level !== undefined && rawArgs.level !== null) {
+      if (typeof rawArgs.level !== "number" || !Number.isInteger(rawArgs.level) || rawArgs.level < 1 || rawArgs.level > 100) {
+        return fail("'level' must be an integer between 1 and 100 for 'volume_up'/'volume_down'.");
+      }
+      level = rawArgs.level;
+    }
   }
 
   const timeoutMs = effectiveTimeoutMs(deps.defaultTimeoutMs ?? DEFAULT_MEDIA_CONTROL_TIMEOUT_MS, options.timeoutMs);
@@ -343,7 +353,8 @@ export async function runMediaControl(
       });
     }
 
-    const resolvedLevel = out.volumeLevel ?? level;
+    const isStepVolume = action === "volume_up" || action === "volume_down";
+    const resolvedLevel = out.volumeLevel ?? (action === "set_volume" ? level : undefined);
     let detail = "";
     if (action === "seek_forward" || action === "seek_backward") {
       detail = ` (${seconds}s)`;
@@ -363,7 +374,8 @@ export async function runMediaControl(
         state: "ok",
         action,
         ...(seconds !== undefined ? { seconds } : {}),
-        ...(out.volumeLevel !== undefined ? { level: out.volumeLevel } : level !== undefined ? { level } : {}),
+        ...(resolvedLevel !== undefined ? { level: resolvedLevel } : {}),
+        ...(isStepVolume && level !== undefined ? { step: level } : {}),
         ...(out.muted !== undefined ? { muted: out.muted } : {}),
         ...(out.nowPlaying !== undefined ? { nowPlaying: out.nowPlaying } : {}),
         truncated: false,

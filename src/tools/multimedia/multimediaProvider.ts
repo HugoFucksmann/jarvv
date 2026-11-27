@@ -11,6 +11,7 @@ import type { MCPCallResult, MCPTool } from "../../core/types.ts";
 import {
   DEFAULT_MEDIA_CONTROL_TIMEOUT_MS,
   DEFAULT_SEEK_SECONDS,
+  DEFAULT_VOLUME_STEP,
   MAX_SEEK_SECONDS,
   MEDIA_ACTIONS,
   runMediaControl,
@@ -22,6 +23,7 @@ import {
   MEDIA_TYPES,
   runPlayMedia,
   type PlayMediaDriver,
+  type YouTubeVideoResolver,
 } from "./playMedia.ts";
 
 const MULTIMEDIA_SERVER = "jarvis_multimedia";
@@ -29,11 +31,11 @@ const PLAY_MEDIA = "play_media";
 const MEDIA_CONTROL = "media_control";
 
 export type { MediaAction, MediaControlDriver, NowPlayingInfo } from "./mediaControl.ts";
-export type { MediaPlatform, MediaType, PlayMediaDriver, PlayMediaRequest } from "./playMedia.ts";
+export type { MediaPlatform, MediaType, PlayMediaDriver, PlayMediaRequest, YouTubeVideoResolver } from "./playMedia.ts";
 
 const PLAY_MEDIA_TOOL: MCPTool = {
   name: PLAY_MEDIA,
-  description: "Search or play music/video on YouTube or Spotify.",
+  description: "Play or switch music/video on YouTube or Spotify (reuses open YouTube tab).",
   inputSchema: {
     type: "object",
     properties: {
@@ -74,7 +76,7 @@ const MEDIA_CONTROL_TOOL: MCPTool = {
       },
       level: {
         type: "integer",
-        description: "For set_volume: target volume level 0..100.",
+        description: `For set_volume: target 0..100. For volume_up/volume_down: percentage step 1..100 (default ${DEFAULT_VOLUME_STEP}).`,
       },
     },
     required: ["action"],
@@ -86,6 +88,7 @@ const TOOLS: readonly MCPTool[] = [PLAY_MEDIA_TOOL, MEDIA_CONTROL_TOOL];
 
 interface MultimediaProviderOptions {
   readonly playDriver?: PlayMediaDriver;
+  readonly youtubeResolver?: YouTubeVideoResolver;
   readonly controlDriver?: MediaControlDriver;
   readonly platform?: NodeJS.Platform;
   readonly playTimeoutMs?: number;
@@ -97,6 +100,7 @@ export class MultimediaProvider implements ToolProvider {
   readonly version = "1.0.0";
 
   private readonly playDriver: PlayMediaDriver | undefined;
+  private readonly youtubeResolver: YouTubeVideoResolver | undefined;
   private readonly controlDriver: MediaControlDriver | undefined;
   private readonly platform: NodeJS.Platform;
   private readonly playTimeoutMs: number;
@@ -104,6 +108,7 @@ export class MultimediaProvider implements ToolProvider {
 
   constructor(options: MultimediaProviderOptions = {}) {
     this.playDriver = options.playDriver;
+    this.youtubeResolver = options.youtubeResolver;
     this.controlDriver = options.controlDriver;
     this.platform = options.platform ?? process.platform;
     this.playTimeoutMs = options.playTimeoutMs ?? DEFAULT_PLAY_MEDIA_TIMEOUT_MS;
@@ -125,7 +130,12 @@ export class MultimediaProvider implements ToolProvider {
       case PLAY_MEDIA:
         return runPlayMedia(
           args,
-          { driver: this.playDriver, platform: this.platform, defaultTimeoutMs: this.playTimeoutMs },
+          {
+            driver: this.playDriver,
+            youtubeResolver: this.youtubeResolver,
+            platform: this.platform,
+            defaultTimeoutMs: this.playTimeoutMs,
+          },
           { signal: options.signal, timeoutMs: options.timeoutMs },
         );
       case MEDIA_CONTROL:

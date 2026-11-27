@@ -359,22 +359,22 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
   }),
 
   // ── Grupo `multimedia` (proveedor nativo `jarvis_multimedia`): reproducir y controlar la reproducción. No dejan nada en el disco. ──
-  def("multimedia", "play_media", "PROCESS_CONTROL", "Search and play music or video on YouTube or Spotify.", {
+  def("multimedia", "play_media", "PROCESS_CONTROL", "Play or switch music/video directly on YouTube or Spotify.", {
     params: ["query", "platform", "mediaType"],
     notes: {
-      query: "Song or video search text, a YouTube or Spotify URL, or a Spotify URI.",
+      query: "Song or video name, YouTube/Spotify URL, or Spotify URI. Reuses an open YouTube tab if playing.",
       platform: "'auto' (default), 'youtube' or 'spotify'.",
       mediaType: "'auto' (default), 'music' or 'video'.",
     },
-    timeoutMs: 10_000,
+    timeoutMs: 12_000,
   }),
-  def("multimedia", "media_control", "PROCESS_CONTROL", "Control the current playback: pause, skip, seek, volume, now playing.", {
+  def("multimedia", "media_control", "PROCESS_CONTROL", "Control playback (pause, skip, seek, now playing) and volume (0..100%).", {
     repeat: "allow",
     params: ["action", "seconds", "level"],
     notes: {
-      action: "Action to perform, e.g. play, pause, next, previous, seek_forward, seek_backward, set_volume, mute, now_playing.",
+      action: "Action: play, pause, toggle, next, previous, seek_forward, seek_backward, volume_up, volume_down, set_volume, get_volume, mute, unmute, toggle_mute, now_playing.",
       seconds: "Only for seek_forward and seek_backward: seconds to jump.",
-      level: "Only for set_volume: volume level 0..100.",
+      level: "For set_volume: target 0..100 (required). For volume_up/volume_down: percentage step 1..100 (optional, default 10).",
     },
     timeoutMs: 10_000,
   }),

@@ -16,6 +16,7 @@ import {
   type PlayMediaDriver,
   type PlayMediaRequest,
 } from "../src/tools/multimedia/multimediaProvider.ts";
+import { extractYouTubeVideoId, resolveYouTubeVideoId } from "../src/tools/multimedia/playMedia.ts";
 
 test("jarvis_multimedia: lista play_media y media_control y rechaza desconocidas", async () => {
   const provider = new MultimediaProvider();
@@ -197,4 +198,105 @@ test("media_control: controla transporte, seek, volumen, silencio y now_playing"
   ac.abort();
   const cancelled = await provider.callTool("media_control", { action: "play" }, { signal: ac.signal });
   assert.equal(readToolResult(cancelled)?.data.state, "cancelled");
+});
+
+test("play_media: resuelve búsquedas de YouTube a watch?v=... y reporta reusedTab", async () => {
+  assert.equal(extractYouTubeVideoId('{"videoRenderer":{"videoId":"fJ9rUzIMcZQ"}}'), "fJ9rUzIMcZQ");
+  assert.equal(extractYouTubeVideoId("<html>no results</html>"), null);
+
+  const resolvedId = await resolveYouTubeVideoId(
+    "bohemian rhapsody",
+    undefined,
+    (async () =>
+      new Response('{"videoRenderer":{"videoId":"fJ9rUzIMcZQ"}}', { status: 200 })) as unknown as typeof fetch,
+  );
+  assert.equal(resolvedId, "fJ9rUzIMcZQ");
+
+  const failedId = await resolveYouTubeVideoId(
+    "bohemian rhapsody",
+    undefined,
+    (async () => new Response("err", { status: 503 })) as unknown as typeof fetch,
+  );
+  assert.equal(failedId, null);
+
+  const launched: PlayMediaRequest[] = [];
+  let reuseNext = false;
+  const provider = new MultimediaProvider({
+    youtubeResolver: async (q) => (q === "unknown" ? null : "dQw4w9WgXcQ"),
+    playDriver: {
+      async play(req) {
+        launched.push(req);
+        return { reusedTab: reuseNext };
+      },
+    },
+  });
+
+  // Video en YouTube -> watch?v=...
+  const vid = await provider.callTool("play_media", { query: "never gonna give you up" });
+  const vidRead = readToolResult(vid);
+  assert.equal(vid.isError, false);
+  assert.equal(vidRead?.data.launchTarget, "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+  assert.equal(vidRead?.data.isDirectUri, true);
+  assert.equal(vidRead?.data.reusedTab, false);
+
+  // Música en YouTube Music reutilizando pestaña existente
+  reuseNext = true;
+  const mus = await provider.callTool("play_media", {
+    query: "never gonna give you up",
+    platform: "youtube",
+    mediaType: "music",
+  });
+  const musRead = readToolResult(mus);
+  assert.equal(mus.isError, false);
+  assert.equal(musRead?.data.launchTarget, "https://music.youtube.com/watch?v=dQw4w9WgXcQ");
+  assert.equal(musRead?.data.reusedTab, true);
+  assert.ok(musRead?.text.includes("switching youtube tab"));
+
+  // Fallback a búsqueda si resolver devuelve null
+  const fb = await provider.callTool("play_media", { query: "unknown", platform: "youtube" });
+  assert.equal(readToolResult(fb)?.data.launchTarget, "https://www.youtube.com/results?search_query=unknown");
+  assert.equal(readToolResult(fb)?.data.isDirectUri, false);
+  assert.equal(launched.length, 3);
+});
+
+test("media_control: volumen por porcentajes (volume_up/volume_down con level) y get_volume", async () => {
+  let volume = 40;
+  const provider = new MultimediaProvider({
+    controlDriver: {
+      async execute({ action, level }) {
+        if (action === "volume_up") {
+          volume = Math.min(100, volume + (level ?? 10));
+          return { volumeLevel: volume, muted: false };
+        }
+        if (action === "volume_down") {
+          volume = Math.max(0, volume - (level ?? 10));
+          return { volumeLevel: volume, muted: false };
+        }
+        if (action === "get_volume") {
+          return { volumeLevel: volume, muted: false };
+        }
+        return {};
+      },
+    },
+  });
+
+  const up15 = await provider.callTool("media_control", { action: "volume_up", level: 15 });
+  assert.equal(up15.isError, false);
+  assert.equal(readToolResult(up15)?.data.level, 55);
+  assert.equal(readToolResult(up15)?.data.step, 15);
+
+  const down5 = await provider.callTool("media_control", { action: "volume_down", level: 5 });
+  assert.equal(down5.isError, false);
+  assert.equal(readToolResult(down5)?.data.level, 50);
+  assert.equal(readToolResult(down5)?.data.step, 5);
+
+  const getVol = await provider.callTool("media_control", { action: "get_volume" });
+  assert.equal(getVol.isError, false);
+  assert.equal(readToolResult(getVol)?.data.level, 50);
+  assert.equal(readToolResult(getVol)?.data.muted, false);
+
+  // Validación de porcentaje inválido en volume_up/volume_down
+  assert.equal((await provider.callTool("media_control", { action: "volume_up", level: 0 })).isError, true);
+  assert.equal((await provider.callTool("media_control", { action: "volume_down", level: 101 })).isError, true);
+  assert.equal((await provider.callTool("media_control", { action: "volume_up", level: 12.5 })).isError, true);
 });
